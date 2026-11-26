@@ -14,6 +14,11 @@ if [[ ! -f "$binary" ]]; then
   echo "Build first: cargo build --locked --release --target $target" >&2
   exit 1
 fi
+# Bundle the exact project's committed source and notices with distributed builds.
+if ! git diff --quiet HEAD -- || [[ -n "$(git ls-files --others --exclude-standard)" ]]; then
+  echo 'Commit source changes before packaging so the included source matches the build.' >&2
+  exit 1
+fi
 # CLI smoke test also rejects a binary that cannot execute on the build host.
 "$binary" --version
 version="$("$binary" --version | awk '{print $2}')"
@@ -25,6 +30,10 @@ mkdir -p "$stage/$name"
 cp "$binary" "$stage/$name/gtuim"
 chmod 755 "$stage/$name/gtuim"
 cp LICENSE "$stage/$name/LICENSE"
+cp -R LICENSES "$stage/$name/LICENSES"
+revision="$(git rev-parse HEAD)"
+printf '%s\n' "$revision" > "$stage/$name/SOURCE_COMMIT"
+git archive --format=tar --prefix="gtuim-source/" HEAD | gzip > "$stage/$name/gtuim-source.tar.gz"
 cp docs/distribution.md "$stage/$name/README.md"
 cp "$binary" "dist/$name"
 chmod 755 "dist/$name"

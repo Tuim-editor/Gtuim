@@ -1,9 +1,10 @@
 [package]
 name = "gtuim"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Native GPUI desktop workspace and IDE powered by Neovim — GUI rebuild of Rtuim using Zed's GPUI framework"
-license = "MIT"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Tuim-editor/Gtuim"
 
 [[bin]]
 name = "gtuim"

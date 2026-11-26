@@ -3,8 +3,15 @@
 ## Release files
 
 Release packaging produces a directly executable `gtuim-<version>-<platform>` and a
-`.tar.gz` containing `gtuim`, its license and these instructions. SHA-256 checksums
-cover both. Supported release targets:
+`.tar.gz` containing `gtuim`, its GPL license, upstream notices, these instructions,
+a `SOURCE_COMMIT` identifier and `gtuim-source.tar.gz` (the matching project's
+committed source and build files). SHA-256 checksums cover both release files.
+Gtuim is licensed under `GPL-3.0-or-later`; see `LICENSE` and the README license
+section. Share the archive, not only a detached executable, so recipients also
+receive the license, notices and project source. Dependencies retain their own
+licenses; their pinned versions and checksums are recorded in `Cargo.lock` and
+Cargo retrieves their sources when building. This is not a comprehensive audit
+of third-party distribution obligations. Supported release targets:
 
 | Platform | Rust target |
 | --- | --- |
@@ -51,7 +58,9 @@ bash scripts/package-release.sh x86_64-unknown-linux-gnu
 ```
 
 On a Mac, substitute its native target from the table. Output goes to `dist/`.
-The packaging script checks `--version` before creating archives. That is a CLI
+Commit the source before building and packaging; packaging refuses a dirty source
+tree to avoid shipping an inaccurate source snapshot. The packaging script checks
+`--version` before creating archives. That is a CLI
 smoke test, not proof of rendering or editing functionality; run the GUI and
 open/edit/save a file on each target OS before distributing widely.
 
@@ -64,8 +73,9 @@ executables → Run workflow**, or push a `v*` tag. Download each job's artifact
 from the completed run. The workflow does not publish a GitHub Release, sign
 binaries, or modify the issue tracker.
 
-This source directory originally had no Git metadata or remote. Adding a
-workflow file locally does not run CI or produce macOS executables. Repository
-selection, pushing the source and an actual successful workflow run are still
-required. Runner availability and any private-repository CI charges are governed
+The source repository is now `https://github.com/Tuim-editor/Gtuim`, alongside
+`Tuim-editor/Tuim` and `Tuim-editor/Rtuim`. Adding a workflow file does not itself
+produce macOS executables: an actual successful native workflow run is required.
+Private repository contents and CI artifacts require access; archive files can
+be shared separately together with their source and notices. Runner availability and any private-repository CI charges are governed
 by the repository's GitHub plan.

@@ -8,7 +8,9 @@ report widget, GPUI integration/tests, and release tooling/portability/docs. A
 fresh fourth agent reviewed the result. Its two actionable findings (GUI
 keyboard recovery and TUI manual recovery) were fixed and rechecked.
 
-Default tracker: `Tuim-editor/Rtuim`; override with `GTUIM_BUG_REPORT_REPO`.
+Default tracker: `Tuim-editor/Gtuim`; override with `GTUIM_BUG_REPORT_REPO`.
+The repository was transferred from `Rouboufy/Gtuim` to the `Tuim-editor`
+organization at the owner's request. A private tracker requires reporter access.
 No GitHub issue is automatically posted. Opening a draft transmits URL-embedded
 content to GitHub and may retain it in browser history. Redaction is best-effort.
 Oversized reports retain their complete text for clipboard/manual recovery.

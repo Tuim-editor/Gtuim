@@ -20,7 +20,7 @@ pub const BUG_CATEGORIES: &[&str] = &[
     "Performance",
     "Other",
 ];
-pub const DEFAULT_BUG_REPORT_REPO: &str = "Tuim-editor/Rtuim";
+pub const DEFAULT_BUG_REPORT_REPO: &str = "Tuim-editor/Gtuim";
 /// Conservative browser/desktop-handler limit, measured after UTF-8 percent encoding.
 pub const MAX_DRAFT_URL_BYTES: usize = 8000;
 static NEXT_EXPORT: AtomicU64 = AtomicU64::new(0);
@@ -751,7 +751,7 @@ mod tests {
         assert!(draft.report_markdown.contains("日本"));
         assert!(draft
             .url
-            .starts_with("https://github.com/Tuim-editor/Rtuim/issues/new?title="));
+            .starts_with("https://github.com/Tuim-editor/Gtuim/issues/new?title="));
         assert!(!draft.needs_clipboard);
     }
 

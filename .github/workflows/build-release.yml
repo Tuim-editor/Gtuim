@@ -21,8 +21,11 @@ jobs:
           - os: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Linux build libraries
         if: runner.os == 'Linux'
         run: |
@@ -36,8 +39,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - name: Report tests
-        run: cargo test --locked --lib bug_report -- --test-threads=1
+        # Avoid optimizing the entire GPUI dependency graph just for headless tests.
+        run: cargo test --locked --lib bug_report --config 'profile.test.opt-level=0' --config 'profile.test.package."*".opt-level=0' -- --test-threads=1
       - name: Build native executable
         run: cargo build --locked --release --target ${{ matrix.target }}
       - name: Smoke test and package

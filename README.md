@@ -75,7 +75,7 @@ cargo build --release
 Press **F12** or choose **Help → Report Bug**. Reports open as a prefilled GitHub
 issue draft; you review and submit them on GitHub using your own account. No
 reporting server or API token is required. The default tracker is
-`Tuim-editor/Rtuim`, the upstream project linked above. Set
+[`Tuim-editor/Gtuim`](https://github.com/Tuim-editor/Gtuim/issues). Set
 `GTUIM_BUG_REPORT_REPO=owner/repository` before launching to choose another tracker.
 
 Reports are intended for a **public issue tracker**. Opening a prefilled draft
@@ -97,6 +97,19 @@ See [distribution instructions](docs/distribution.md) for runtime dependencies,
 Linux/macOS native builds, packaging and the three-platform GitHub Actions
 workflow. macOS binaries require native Apple SDK/Metal tooling; they cannot be
 produced by simply renaming the Linux executable.
+
+## License
+
+Copyright (C) 2026 Rouboufy. Gtuim is free software: you may redistribute and/or
+modify it under the **GNU General Public License, version 3 or (at your option)
+any later version** (`GPL-3.0-or-later`). It is provided **without any warranty**.
+See [LICENSE](LICENSE) for the full terms.
+
+Upstream Rtuim material retains its original [MIT notice](LICENSES/Rtuim-MIT.txt).
+That notice applies to the upstream material, not as an alternative license for
+the current Gtuim project. Third-party dependencies retain their own licenses.
+Earlier versions actually released under MIT retain those permissions; this
+change cannot revoke licenses already granted.
 
 ## Secret checks
 

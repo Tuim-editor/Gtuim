@@ -2444,7 +2444,7 @@ fn bug_report_gui_open_draft_uses_gpui_open_url_redacts_and_supports_copy_fallba
     click_debug_target(window, "bug-confirm");
 
     let opened = window.opened_url().expect("GPUI open_url should be invoked");
-    assert!(opened.starts_with("https://github.com/Tuim-editor/Rtuim/issues/new?title="));
+    assert!(opened.starts_with("https://github.com/Tuim-editor/Gtuim/issues/new?title="));
     assert!(opened.len() <= MAX_DRAFT_URL_BYTES);
     assert!(!opened.contains("ghp_secret123"));
     assert!(!opened.contains("mysecret"));
@@ -2514,7 +2514,7 @@ fn bug_report_gui_oversized_report_copies_full_markdown_before_opening_bounded_u
 
     let opened = window.opened_url().expect("GPUI open_url should open bounded draft URL");
     assert!(opened.len() <= MAX_DRAFT_URL_BYTES);
-    assert!(opened.starts_with("https://github.com/Tuim-editor/Rtuim/issues/new?body="));
+    assert!(opened.starts_with("https://github.com/Tuim-editor/Gtuim/issues/new?body="));
     assert!(opened.contains("Paste%20the%20complete%20report"));
 
     let copied = window
@@ -2656,7 +2656,7 @@ fn bug_report_gui_invalid_repo_fails_safely_preserves_form_and_allows_copy_and_r
 #[gpui::test]
 fn bug_report_gui_success_recovery_shortcuts_use_native_actions(cx: &mut TestAppContext) {
     use crate::tui::widgets::bug_report::BugStage;
-    let url = "https://github.com/Tuim-editor/Rtuim/issues/new?body=keyboard-recovery";
+    let url = "https://github.com/Tuim-editor/Gtuim/issues/new?body=keyboard-recovery";
     let (view, window) = cx.add_window_view(|win, cx| {
         let mut view = fixture(cx);
         view.app.extension_shop.is_open = false;
@@ -2748,7 +2748,7 @@ fn bug_report_gui_result_shortcuts_preserve_close_and_ignore_modifiers(cx: &mut 
         let mut view = fixture(cx);
         view.app.extension_shop.is_open = false;
         view.app.bug_report.is_open = true;
-        view.app.bug_report.issue_url = "https://github.com/Tuim-editor/Rtuim/issues/new".into();
+        view.app.bug_report.issue_url = "https://github.com/Tuim-editor/Gtuim/issues/new".into();
         win.focus(&view.root_focus);
         view
     });
