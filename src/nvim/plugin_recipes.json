@@ -1,0 +1,281 @@
+{
+  "version": 1,
+  "recipes": [
+    {
+      "id": "gruber-darker",
+      "repo": "blazkowolf/gruber-darker.nvim",
+      "name": "Gruber Darker",
+      "description": "High-contrast dark colorscheme with configurable bold, underline, and italic styles.",
+      "category": "colorscheme",
+      "support": "supported",
+      "module": "gruber-darker",
+      "pin": "35cb97959ef01f7193c94c404c13ddb3d4346654",
+      "pin_kind": "commit",
+      "dependencies": [],
+      "requirements": [],
+      "verification": "colorscheme:gruber-darker",
+      "fields": [
+        {
+          "key": "bold",
+          "label": "Bold highlights",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "underline",
+          "label": "Underline highlights",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "undercurl",
+          "label": "Undercurl diagnostics",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "italic.strings",
+          "label": "Italic strings",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "italic.comments",
+          "label": "Italic comments",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "italic.operators",
+          "label": "Italic operators",
+          "type": "boolean",
+          "default": false,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "italic.folds",
+          "label": "Italic folds",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "invert.visual",
+          "label": "Invert visual selection",
+          "type": "boolean",
+          "default": false,
+          "choices": [],
+          "min": null,
+          "max": null
+        }
+      ]
+    },
+    {
+      "id": "gitsigns",
+      "repo": "lewis6991/gitsigns.nvim",
+      "name": "Gitsigns",
+      "description": "Git gutter signs, hunk staging, and optional inline blame annotations.",
+      "category": "git",
+      "support": "supported",
+      "module": "gitsigns",
+      "pin": "v2.1.0",
+      "pin_kind": "tag",
+      "dependencies": [],
+      "requirements": [
+        {
+          "command": "git",
+          "label": "Git CLI (required for buffer diff signs)"
+        }
+      ],
+      "verification": "module:gitsigns:setup,attach",
+      "fields": [
+        {
+          "key": "signcolumn",
+          "label": "Show git signs in gutter",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "numhl",
+          "label": "Highlight line numbers",
+          "type": "boolean",
+          "default": false,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "linehl",
+          "label": "Highlight changed lines",
+          "type": "boolean",
+          "default": false,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "current_line_blame",
+          "label": "Inline current-line blame",
+          "type": "boolean",
+          "default": false,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "update_debounce",
+          "label": "Update debounce (ms)",
+          "type": "integer",
+          "default": 100,
+          "choices": [],
+          "min": 20,
+          "max": 2000
+        },
+        {
+          "key": "max_file_length",
+          "label": "Max file length (lines)",
+          "type": "integer",
+          "default": 40000,
+          "choices": [],
+          "min": 1000,
+          "max": 500000
+        }
+      ]
+    },
+    {
+      "id": "comment",
+      "repo": "numToStr/Comment.nvim",
+      "name": "Comment.nvim",
+      "description": "Smart line and block commenting (gcc / gbc / gc motions) with Treesitter awareness.",
+      "category": "editing",
+      "support": "supported",
+      "module": "Comment",
+      "pin": "v0.8.0",
+      "pin_kind": "tag",
+      "dependencies": [],
+      "requirements": [],
+      "verification": "module:Comment:setup",
+      "fields": [
+        {
+          "key": "padding",
+          "label": "Space between comment and text",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "sticky",
+          "label": "Keep cursor in place",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "toggler.line",
+          "label": "Line-comment toggle key",
+          "type": "string",
+          "default": "gcc",
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "toggler.block",
+          "label": "Block-comment toggle key",
+          "type": "string",
+          "default": "gbc",
+          "choices": [],
+          "min": null,
+          "max": null
+        }
+      ]
+    },
+    {
+      "id": "nvim-autopairs",
+      "repo": "windwp/nvim-autopairs",
+      "name": "Autopairs",
+      "description": "Treesitter-aware automatic bracket and quote pairing (replaces built-in basic autopairs).",
+      "category": "editing",
+      "support": "supported",
+      "module": "nvim-autopairs",
+      "pin": "3172f40c16563db871a58f20d205c710ad782311",
+      "pin_kind": "commit",
+      "dependencies": [],
+      "requirements": [],
+      "verification": "module:nvim-autopairs:setup,get_rule",
+      "fields": [
+        {
+          "key": "check_ts",
+          "label": "Treesitter context checks",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "enable_check_bracket_line",
+          "label": "Skip closing pair if already closed on line",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "disable_in_macro",
+          "label": "Disable inside macros",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "map_cr",
+          "label": "Smart Enter inside pairs",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        },
+        {
+          "key": "map_bs",
+          "label": "Delete matching pair on Backspace",
+          "type": "boolean",
+          "default": true,
+          "choices": [],
+          "min": null,
+          "max": null
+        }
+      ]
+    }
+  ]
+}

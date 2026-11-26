@@ -1,0 +1,12 @@
+/target/
+/dist/
+__pycache__/
+*.py[cod]
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+# Local study/reference material, not application source.
+/en.subject.pdf
+/memo.md
