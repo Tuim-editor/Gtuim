@@ -15,8 +15,10 @@ git config core.hooksPath .githooks
 bash scripts/check-secrets.sh
 ```
 
-The pre-push hook scans **all reachable Git history** and fails closed if the
-scanner is missing or a finding is reported. Output is fully redacted. Set
+The pre-push hook scans **all reachable Git history plus outgoing object IDs**
+(including commits pushed without a local ref), and fails closed if the scanner
+is missing or a finding is reported. Inline `gitleaks:allow` suppressions are
+ignored. Output is fully redacted. Set
 `GITLEAKS_BIN` if the executable is not on `PATH`. Hooks are local Git settings:
 cloning the repository does not automatically enable them, and they can be
 bypassed. They are not GitHub server-side push protection.

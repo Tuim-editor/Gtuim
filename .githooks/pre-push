@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
-exec bash "$root/scripts/check-secrets.sh"
+outgoing=()
+while read -r local_ref local_oid remote_ref remote_oid; do
+  # A zero local OID deletes a ref and sends no commit objects.
+  if [[ -n "$local_oid" && ! "$local_oid" =~ ^0+$ ]]; then
+    outgoing+=("$local_oid")
+  fi
+done
+exec bash "$root/scripts/check-secrets.sh" "${outgoing[@]}"
