@@ -3105,6 +3105,61 @@ _G.tuim_save_settings = function()
     if f_w then f_w:write(vim.fn.json_encode(state)); f_w:close() end
 end
 
+-- 'number' and 'relativenumber' are window-local: a dashboard's :setlocal
+-- nonumber otherwise leaks into the first edited file and any inherited splits.
+-- Keep the saved preference separate from whichever (possibly special) window
+-- is current. Only entry/classification events touch options, never scrolling.
+local tuim_numbers = "relative"
+local function apply_numbers_to_window(win)
+    if not vim.api.nvim_win_is_valid(win) then return end
+    local buf = vim.api.nvim_win_get_buf(win)
+    local bo = vim.bo[buf]
+    local normal = (bo.buftype == "" or bo.buftype == "acwrite")
+        and not ide_excluded_filetypes[bo.filetype]
+        and vim.api.nvim_win_get_config(win).relative == ""
+    local number = normal and tuim_numbers ~= "none"
+    local relative = normal and tuim_numbers == "relative"
+    -- Avoid unnecessary redraws/OptionSet work on repeated entry events.
+    if vim.wo[win].number ~= number then vim.wo[win].number = number end
+    if vim.wo[win].relativenumber ~= relative then vim.wo[win].relativenumber = relative end
+end
+
+_G.tuim_apply_numbers = function(value)
+    tuim_numbers = (value == "absolute" or value == "none") and value or "relative"
+    local number, relative = tuim_numbers ~= "none", tuim_numbers == "relative"
+    -- Set defaults without enabling numbers in the current dashboard/picker.
+    if vim.go.number ~= number then vim.go.number = number end
+    if vim.go.relativenumber ~= relative then vim.go.relativenumber = relative end
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+        apply_numbers_to_window(win)
+    end
+end
+
+local numbers_group = vim.api.nvim_create_augroup("TuimLineNumbers", { clear = true })
+vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "WinEnter", "FileType", "TermOpen" }, {
+    group = numbers_group,
+    callback = function(args)
+        if args.event == "FileType" or args.event == "TermOpen" then
+            for _, win in ipairs(vim.fn.win_findbuf(args.buf)) do apply_numbers_to_window(win) end
+        else
+            apply_numbers_to_window(vim.api.nvim_get_current_win())
+        end
+    end,
+})
+
+-- Some scratch/plugin buffers acquire their special type after BufEnter and
+-- have no FileType event. Classification changes are rare, unlike cursor moves.
+vim.api.nvim_create_autocmd("OptionSet", {
+    group = numbers_group,
+    pattern = "buftype",
+    callback = function()
+        -- OptionSet is not buffer-specific (args.buf is 0).
+        for _, win in ipairs(vim.fn.win_findbuf(vim.api.nvim_get_current_buf())) do
+            apply_numbers_to_window(win)
+        end
+    end,
+})
+
 local tuim_colorcolumn = ""
 local function apply_colorcolumn_to_window(win)
     if not vim.api.nvim_win_is_valid(win) then return end
@@ -3138,6 +3193,7 @@ vim.api.nvim_create_autocmd({ "BufEnter", "BufWinEnter", "FileType" }, {
 _G.tuim_load_settings = function()
     local f = io.open(vim.g.tuim_settings_path or (vim.fn.stdpath("data") .. "/settings.json"), "r")
     if not f then
+        _G.tuim_apply_numbers("relative")
         -- Match Rust SettingsConfig::default() ("ide") when no settings.json exists yet.
         vim.g.tuim_zen_mode = false
         vim.g.tuim_ide_mode = true
@@ -3149,6 +3205,7 @@ _G.tuim_load_settings = function()
     f:close()
     local ok, state = pcall(vim.fn.json_decode, content)
     if not ok or type(state) ~= "table" then
+        _G.tuim_apply_numbers("relative")
         vim.g.tuim_zen_mode = false
         vim.g.tuim_ide_mode = true
         _G.tuim_enable_ide_mode()
@@ -3204,16 +3261,7 @@ _G.tuim_load_settings = function()
     else
         vim.o.autoindent = true
     end
-    if state.numbers == "absolute" then
-        vim.o.number = true
-        vim.o.relativenumber = false
-    elseif state.numbers == "none" then
-        vim.o.number = false
-        vim.o.relativenumber = false
-    elseif state.numbers == "relative" then
-        vim.o.number = true
-        vim.o.relativenumber = true
-    end
+    _G.tuim_apply_numbers(state.numbers)
     if type(state.tabstop) == "number" and state.tabstop >= 2 and state.tabstop <= 8 then
         vim.o.tabstop = state.tabstop
         vim.o.shiftwidth = state.tabstop

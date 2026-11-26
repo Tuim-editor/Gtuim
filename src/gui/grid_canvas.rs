@@ -266,8 +266,36 @@ impl CursorSnapshot {
     }
 }
 
-/// Content-addressed cached row (`row_hash -> (bg_runs, ShapedLine)`).
-/// Survives scrolling: when lines shift vertically, 49/50 rows still hit in O(1)!
+/// Content-addressed cached row segment (`segment_hash -> shaped text`).
+/// Keep the frequently changing number gutter independent of the code: relative
+/// numbers change on every cursor/scroll step, while most code stays identical.
+const GUTTER_SEGMENT_COLS: usize = 8;
+const TEXT_SEGMENT_COLS: usize = 64;
+const MAX_CACHED_SEGMENTS: usize = 2048;
+
+// Keep non-ASCII graphemes in independent segments, so one gutter sign or
+// split divider cannot force every ASCII code cell through per-glyph shaping.
+fn next_segment(
+    cells: &[CompactCell],
+    overflow: &[Arc<str>],
+    start: usize,
+) -> std::ops::Range<usize> {
+    let tile_end = if start < GUTTER_SEGMENT_COLS {
+        GUTTER_SEGMENT_COLS
+    } else {
+        GUTTER_SEGMENT_COLS
+            + ((start - GUTTER_SEGMENT_COLS) / TEXT_SEGMENT_COLS + 1) * TEXT_SEGMENT_COLS
+    }
+    .min(cells.len());
+    let mut end = start + 1;
+    if cells[start].as_str(overflow).is_ascii() {
+        while end < tile_end && cells[end].as_str(overflow).is_ascii() {
+            end += 1;
+        }
+    }
+    start..end
+}
+
 #[derive(Clone, Default)]
 pub struct CachedLine {
     bg_runs: Vec<(usize, usize, u32)>,
@@ -298,6 +326,8 @@ pub struct GridBuffer {
     // Scratch buffers reused across dirty rows
     scratch_text: String,
     scratch_runs: Vec<TextRun>,
+    #[cfg(test)]
+    shaped_cells: usize,
 }
 
 impl Default for GridBuffer {
@@ -322,6 +352,8 @@ impl Default for GridBuffer {
             line_cache: HashMap::with_capacity(256),
             scratch_text: String::with_capacity(256),
             scratch_runs: Vec::with_capacity(32),
+            #[cfg(test)]
+            shaped_cells: 0,
         }
     }
 }
@@ -690,7 +722,12 @@ impl IntoElement for CellGridElement {
     }
 }
 
-fn make_mono_font(family: &SharedString, base_weight: FontWeight, bold: bool, italic: bool) -> Font {
+fn make_mono_font(
+    family: &SharedString,
+    base_weight: FontWeight,
+    bold: bool,
+    italic: bool,
+) -> Font {
     Font {
         family: family.clone(),
         features: FontFeatures::disable_ligatures(),
@@ -801,7 +838,8 @@ impl Element for CellGridElement {
 
         buf.frame_counter = buf.frame_counter.wrapping_add(1);
         let current_frame = buf.frame_counter;
-        if buf.line_cache.len() > 512 {
+        // Evict in batches, not by sorting the whole cache on every scroll frame.
+        if buf.line_cache.len() > MAX_CACHED_SEGMENTS + MAX_CACHED_SEGMENTS / 4 {
             // Non-ASCII rows carry positioned grapheme shapes. Bound the cache
             // by count as well as age, even during rapid continuous scrolling.
             let mut ages: Vec<_> = buf
@@ -810,7 +848,10 @@ impl Element for CellGridElement {
                 .map(|(key, row)| (*key, row.last_frame))
                 .collect();
             ages.sort_unstable_by_key(|(_, frame)| *frame);
-            for (key, _) in ages.into_iter().take(buf.line_cache.len() - 512) {
+            for (key, _) in ages
+                .into_iter()
+                .take(buf.line_cache.len() - MAX_CACHED_SEGMENTS)
+            {
                 buf.line_cache.remove(&key);
             }
         }
@@ -853,164 +894,181 @@ impl Element for CellGridElement {
 
         for r in 0..draw_rows {
             let row_y = content_origin.y + cell_h * (r as f32);
-            let row_start = r * buf.cols;
-            let row_end = row_start + draw_cols;
+            let mut segment_start = 0;
+            while segment_start < draw_cols {
+                let row_start = r * buf.cols;
+                let segment = next_segment(
+                    &buf.cells[row_start..row_start + draw_cols],
+                    &buf.overflow,
+                    segment_start,
+                );
+                segment_start = segment.end;
+                let segment_origin_x = content_origin.x + cell_w * segment.start as f32;
+                let row_start = r * buf.cols + segment.start;
+                let row_end = r * buf.cols + segment.end;
+                let draw_cols = segment.len();
 
-            let row_hash = hash_row(
-                &buf.cells[row_start..row_end],
-                &buf.overflow,
-                default_bg,
-                font_size_bits,
-                font_weight_bits,
-                self.font_family.as_ref(),
-            );
+                let row_hash = hash_row(
+                    &buf.cells[row_start..row_end],
+                    &buf.overflow,
+                    default_bg,
+                    font_size_bits,
+                    font_weight_bits,
+                    self.font_family.as_ref(),
+                );
 
-            if !buf.line_cache.contains_key(&row_hash) {
-                let mut bg_runs = Vec::new();
-                let mut c = 0usize;
-                while c < draw_cols {
-                    let bg_color = buf.cells[row_start + c].bg;
-                    if bg_color != default_bg {
-                        let start_c = c;
-                        c += 1;
-                        while c < draw_cols && buf.cells[row_start + c].bg == bg_color {
+                if !buf.line_cache.contains_key(&row_hash) {
+                    #[cfg(test)]
+                    {
+                        buf.shaped_cells += draw_cols;
+                    }
+                    let mut bg_runs = Vec::new();
+                    let mut c = 0usize;
+                    while c < draw_cols {
+                        let bg_color = buf.cells[row_start + c].bg;
+                        if bg_color != default_bg {
+                            let start_c = c;
+                            c += 1;
+                            while c < draw_cols && buf.cells[row_start + c].bg == bg_color {
+                                c += 1;
+                            }
+                            bg_runs.push((start_c, c - start_c, bg_color));
+                        } else {
                             c += 1;
                         }
-                        bg_runs.push((start_c, c - start_c, bg_color));
-                    } else {
-                        c += 1;
                     }
-                }
 
-                buf.scratch_text.clear();
-                buf.scratch_runs.clear();
-                let mut last_style: Option<(u32, u8)> = None;
-                let mut has_non_ascii = false;
-                let mut has_visible = false;
+                    buf.scratch_text.clear();
+                    buf.scratch_runs.clear();
+                    let mut last_style: Option<(u32, u8)> = None;
+                    let mut has_non_ascii = false;
+                    let mut has_visible = false;
 
-                for col in 0..draw_cols {
-                    let cell = buf.cells[row_start + col];
-                    let long_text = cell.overflow_text(&buf.overflow);
-                    let s = long_text.as_deref().unwrap_or_else(|| cell.as_str(&[]));
-                    if s != " " {
-                        has_visible = true;
-                        if !s.is_ascii() {
-                            has_non_ascii = true;
-                        }
-                    }
-                    let byte_len = s.len();
-                    buf.scratch_text.push_str(s);
-
-                    let style_bits = cell.flags & (FLAG_BOLD | FLAG_ITALIC | FLAG_UNDERLINE);
-                    let style_key = (cell.fg, style_bits);
-                    if last_style == Some(style_key) {
-                        if let Some(last) = buf.scratch_runs.last_mut() {
-                            last.len += byte_len;
-                        }
-                    } else {
-                        let color: Hsla = rgb(cell.fg).into();
-                        let variant_idx =
-                            (usize::from(cell.bold())) | (usize::from(cell.italic()) << 1);
-                        let underline = if cell.underline() {
-                            Some(UnderlineStyle {
-                                color: Some(color),
-                                thickness: px(1.0),
-                                wavy: false,
-                            })
-                        } else {
-                            None
-                        };
-                        buf.scratch_runs.push(TextRun {
-                            len: byte_len,
-                            font: font_variants[variant_idx].clone(),
-                            color,
-                            background_color: None,
-                            underline,
-                            strikethrough: None,
-                        });
-                        last_style = Some(style_key);
-                    }
-                }
-
-                // Neovim has already chosen visual terminal cells (including Arabic
-                // presentation forms). Never let paragraph BiDi or font fallback
-                // advances move glyphs away from those cursor/hit-test coordinates.
-                let mut positioned = Vec::new();
-                if has_non_ascii {
                     for col in 0..draw_cols {
                         let cell = buf.cells[row_start + col];
-                        if cell.flags & FLAG_CONT != 0 {
-                            continue;
+                        let long_text = cell.overflow_text(&buf.overflow);
+                        let s = long_text.as_deref().unwrap_or_else(|| cell.as_str(&[]));
+                        if s != " " {
+                            has_visible = true;
+                            if !s.is_ascii() {
+                                has_non_ascii = true;
+                            }
                         }
-                        let text = cell.as_str(&buf.overflow);
-                        if text == " " {
-                            continue;
+                        let byte_len = s.len();
+                        buf.scratch_text.push_str(s);
+
+                        let style_bits = cell.flags & (FLAG_BOLD | FLAG_ITALIC | FLAG_UNDERLINE);
+                        let style_key = (cell.fg, style_bits);
+                        if last_style == Some(style_key) {
+                            if let Some(last) = buf.scratch_runs.last_mut() {
+                                last.len += byte_len;
+                            }
+                        } else {
+                            let color: Hsla = rgb(cell.fg).into();
+                            let variant_idx =
+                                (usize::from(cell.bold())) | (usize::from(cell.italic()) << 1);
+                            let underline = if cell.underline() {
+                                Some(UnderlineStyle {
+                                    color: Some(color),
+                                    thickness: px(1.0),
+                                    wavy: false,
+                                })
+                            } else {
+                                None
+                            };
+                            buf.scratch_runs.push(TextRun {
+                                len: byte_len,
+                                font: font_variants[variant_idx].clone(),
+                                color,
+                                background_color: None,
+                                underline,
+                                strikethrough: None,
+                            });
+                            last_style = Some(style_key);
                         }
-                        let color: Hsla = rgb(cell.fg).into();
-                        let variant = usize::from(cell.bold()) | (usize::from(cell.italic()) << 1);
-                        let run = TextRun {
-                            len: text.len(),
-                            font: font_variants[variant].clone(),
-                            color,
-                            background_color: None,
-                            strikethrough: None,
-                            underline: cell.underline().then_some(UnderlineStyle {
-                                color: Some(color),
-                                thickness: px(1.),
-                                wavy: false,
-                            }),
-                        };
-                        positioned.push((
-                            col,
-                            window.text_system().shape_line(
-                                text.to_owned().into(),
-                                self.font_size,
-                                &[run],
-                                None,
-                            ),
+                    }
+
+                    // Neovim has already chosen visual terminal cells (including Arabic
+                    // presentation forms). Never let paragraph BiDi or font fallback
+                    // advances move glyphs away from those cursor/hit-test coordinates.
+                    let mut positioned = Vec::new();
+                    if has_non_ascii {
+                        for col in 0..draw_cols {
+                            let cell = buf.cells[row_start + col];
+                            if cell.flags & FLAG_CONT != 0 {
+                                continue;
+                            }
+                            let text = cell.as_str(&buf.overflow);
+                            if text == " " {
+                                continue;
+                            }
+                            let color: Hsla = rgb(cell.fg).into();
+                            let variant =
+                                usize::from(cell.bold()) | (usize::from(cell.italic()) << 1);
+                            let run = TextRun {
+                                len: text.len(),
+                                font: font_variants[variant].clone(),
+                                color,
+                                background_color: None,
+                                strikethrough: None,
+                                underline: cell.underline().then_some(UnderlineStyle {
+                                    color: Some(color),
+                                    thickness: px(1.),
+                                    wavy: false,
+                                }),
+                            };
+                            positioned.push((
+                                col,
+                                window.text_system().shape_line(
+                                    text.to_owned().into(),
+                                    self.font_size,
+                                    &[run],
+                                    None,
+                                ),
+                            ));
+                        }
+                    }
+                    let shaped = if has_visible && !has_non_ascii {
+                        Some(window.text_system().shape_line(
+                            SharedString::from(buf.scratch_text.clone()),
+                            self.font_size,
+                            &buf.scratch_runs,
+                            None,
+                        ))
+                    } else {
+                        None
+                    };
+
+                    buf.line_cache.insert(
+                        row_hash,
+                        CachedLine {
+                            bg_runs,
+                            shaped,
+                            positioned,
+                            last_frame: current_frame,
+                        },
+                    );
+                }
+
+                if let Some(entry) = buf.line_cache.get_mut(&row_hash) {
+                    entry.last_frame = current_frame;
+                    for &(start_c, span, bg_color) in &entry.bg_runs {
+                        let x = segment_origin_x + cell_w * (start_c as f32);
+                        let w = cell_w * (span as f32);
+                        bg_quads.push(fill(
+                            Bounds::new(point(x, row_y), size(w, cell_h)),
+                            rgb(bg_color),
                         ));
                     }
-                }
-                let shaped = if has_visible && !has_non_ascii {
-                    Some(window.text_system().shape_line(
-                        SharedString::from(buf.scratch_text.clone()),
-                        self.font_size,
-                        &buf.scratch_runs,
-                        None,
-                    ))
-                } else {
-                    None
-                };
-
-                buf.line_cache.insert(
-                    row_hash,
-                    CachedLine {
-                        bg_runs,
-                        shaped,
-                        positioned,
-                        last_frame: current_frame,
-                    },
-                );
-            }
-
-            if let Some(entry) = buf.line_cache.get_mut(&row_hash) {
-                entry.last_frame = current_frame;
-                for &(start_c, span, bg_color) in &entry.bg_runs {
-                    let x = content_origin.x + cell_w * (start_c as f32);
-                    let w = cell_w * (span as f32);
-                    bg_quads.push(fill(
-                        Bounds::new(point(x, row_y), size(w, cell_h)),
-                        rgb(bg_color),
-                    ));
-                }
-                for (col, shaped) in &entry.positioned {
-                    lines.push((
-                        point(content_origin.x + cell_w * (*col as f32), row_y),
-                        shaped.clone(),
-                    ));
-                }
-                if let Some(shaped) = &entry.shaped {
-                    lines.push((point(content_origin.x, row_y), shaped.clone()));
+                    for (col, shaped) in &entry.positioned {
+                        lines.push((
+                            point(segment_origin_x + cell_w * (*col as f32), row_y),
+                            shaped.clone(),
+                        ));
+                    }
+                    if let Some(shaped) = &entry.shaped {
+                        lines.push((point(segment_origin_x, row_y), shaped.clone()));
+                    }
                 }
             }
         }
@@ -1109,6 +1167,175 @@ impl Element for CellGridElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::core::prelude::v1::test;
+
+    struct CanvasFixture;
+    impl Render for CanvasFixture {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+        }
+    }
+
+    fn paint_fixture(
+        element: &mut CellGridElement,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> GridPrepaintState {
+        element.prepaint(
+            None,
+            None,
+            Bounds::new(point(px(0.), px(0.)), size(px(2400.), px(1200.))),
+            &mut (),
+            window,
+            cx,
+        )
+    }
+
+    #[gpui::test]
+    fn relative_gutter_changes_reuse_code_shapes(cx: &mut TestAppContext) {
+        let (_, window) = cx.add_window_view(|_, _| CanvasFixture);
+        window.update(|window, cx| {
+            let buffer = Rc::new(RefCell::new(GridBuffer::default()));
+            let rows = 40;
+            let cols = 136;
+            buffer.borrow_mut().reset(cols, rows, 0xffffff, 0);
+            for r in 0..rows {
+                let mut buf = buffer.borrow_mut();
+                let text = format!(
+                    "{:8}{}",
+                    1000 + r,
+                    format!("let value_{r:03} = {r:03}; ").repeat(8)
+                );
+                for (col, byte) in text.bytes().take(cols).enumerate() {
+                    buf.cells[r * cols + col].bytes[0] = byte;
+                }
+            }
+            let metrics = Rc::new(RefCell::new(GridMetrics::default()));
+            let mut element = CellGridElement::new(buffer.clone(), metrics, "monospace", px(14.));
+            paint_fixture(&mut element, window, cx);
+            let before = buffer.borrow().shaped_cells;
+            for r in 0..rows {
+                let mut buf = buffer.borrow_mut();
+                for (col, byte) in format!("{:8}", 2000 + r).bytes().enumerate() {
+                    buf.cells[r * cols + col].bytes[0] = byte;
+                }
+            }
+            paint_fixture(&mut element, window, cx);
+            let changed = buffer.borrow().shaped_cells - before;
+            assert!(changed > 0);
+            assert!(
+                changed <= rows * GUTTER_SEGMENT_COLS,
+                "number changes reshaped code: {changed} cells"
+            );
+            eprintln!(
+                "relative gutter update: {changed} cells shaped vs {} whole-row cells",
+                rows * cols
+            );
+            let unchanged = buffer.borrow().shaped_cells;
+            paint_fixture(&mut element, window, cx);
+            assert_eq!(buffer.borrow().shaped_cells, unchanged);
+        });
+    }
+
+    #[gpui::test]
+    fn scrolling_with_unicode_divider_keeps_code_cached_and_cache_bounded(cx: &mut TestAppContext) {
+        let (_, window) = cx.add_window_view(|_, _| CanvasFixture);
+        window.update(|window, cx| {
+            let rows = 40;
+            let cols = 136;
+            let buffer = Rc::new(RefCell::new(GridBuffer::default()));
+            buffer.borrow_mut().reset(cols, rows, 0xffffff, 0);
+            let set_row = |buf: &mut GridBuffer, row: usize, document_line: usize| {
+                let text = format!("{:8}{}", row + 1, format!("let value_{document_line:06} = 12345; ").repeat(8));
+                for (col, byte) in text.bytes().take(cols).enumerate() {
+                    buf.cells[row * cols + col] = CompactCell::blank(0xffffff, 0);
+                    buf.cells[row * cols + col].bytes[0] = byte;
+                }
+                let mut overflow = Vec::new();
+                buf.cells[row * cols + 40].set_text("│", &mut overflow);
+            };
+            for row in 0..rows { set_row(&mut buffer.borrow_mut(), row, row); }
+            let mut element = CellGridElement::new(buffer.clone(), Rc::new(RefCell::new(GridMetrics::default())), "monospace", px(14.));
+            let state = paint_fixture(&mut element, window, cx);
+            assert!(state.lines.len() <= rows * 5, "a Unicode divider must not force per-ASCII-cell shaping");
+            let began = std::time::Instant::now();
+            let initial = buffer.borrow().shaped_cells;
+            for step in 0..120 {
+                {
+                    let mut buf = buffer.borrow_mut();
+                    buf.cells.rotate_left(cols);
+                    set_row(&mut buf, rows - 1, rows + step);
+                    for row in 0..rows {
+                        for (col, byte) in format!("{:8}", step + row + 1000).bytes().enumerate() {
+                            buf.cells[row * cols + col].bytes[0] = byte;
+                        }
+                    }
+                }
+                let before = buffer.borrow().shaped_cells;
+                paint_fixture(&mut element, window, cx);
+                assert!(buffer.borrow().shaped_cells - before <= rows * 8 + cols);
+                assert!(buffer.borrow().line_cache.len() <= MAX_CACHED_SEGMENTS + MAX_CACHED_SEGMENTS / 4 + rows * 5);
+            }
+            eprintln!("120 simulated scroll frames: {:?}, {} cache-miss cells prepared vs {} whole-row cells; headless CPU only, not display FPS", began.elapsed(), buffer.borrow().shaped_cells - initial, 120 * rows * cols);
+        });
+    }
+
+    #[gpui::test]
+    fn unicode_segments_preserve_cell_origins_and_font_invalidation(cx: &mut TestAppContext) {
+        let (_, window) = cx.add_window_view(|_, _| CanvasFixture);
+        window.update(|window, cx| {
+            let buffer = Rc::new(RefCell::new(GridBuffer::default()));
+            {
+                let mut buf = buffer.borrow_mut();
+                buf.reset(80, 1, 0xffffff, 0);
+                // A wide grapheme straddles the first segment boundary. Its
+                // continuation must not produce another glyph or move ASCII text.
+                let mut overflow = Vec::new();
+                buf.cells[7].set_text("漢", &mut overflow);
+                buf.cells[8].set_text("", &mut overflow);
+                buf.cells[9].set_text("X", &mut overflow);
+                buf.cells[10].set_text("א", &mut overflow);
+                buf.cells[72].set_text("👨‍👩‍👧‍👦", &mut overflow);
+                buf.overflow = overflow;
+            }
+            let metrics = Rc::new(RefCell::new(GridMetrics::default()));
+            let mut element = CellGridElement::new(buffer.clone(), metrics, "monospace", px(14.));
+            let state = paint_fixture(&mut element, window, cx);
+            let x = |col: usize| px(GRID_PADDING_X) + buffer.borrow().cached_cell_w * col as f32;
+            assert!(state.lines.iter().any(|(origin, _)| origin.x == x(7)));
+            assert!(state
+                .lines
+                .iter()
+                .any(|(origin, line)| origin.x == x(8) && line.text.as_ref() == " X"));
+            assert!(state
+                .lines
+                .iter()
+                .any(|(origin, line)| origin.x == x(7) && line.text.as_ref() == "漢"));
+            assert!(state.lines.iter().any(|(origin, _)| origin.x == x(72)));
+            let before = buffer.borrow().shaped_cells;
+            element.font_size = px(16.);
+            paint_fixture(&mut element, window, cx);
+            assert!(buffer.borrow().shaped_cells > before);
+        });
+    }
+
+    #[::core::prelude::v1::test]
+    fn row_segments_cover_every_cell_once_at_narrow_and_wide_widths() {
+        for cols in [0, 1, 7, 8, 9, 64, 72, 73, 160, 240] {
+            let cells = vec![CompactCell::blank(1, 2); cols];
+            let mut ranges = Vec::new();
+            let mut start = 0;
+            while start < cols {
+                let range = next_segment(&cells, &[], start);
+                start = range.end;
+                ranges.push(range);
+            }
+            assert_eq!(
+                ranges.into_iter().flatten().collect::<Vec<_>>(),
+                (0..cols).collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn exceptional_graphemes_are_lossless_without_bloating_cells() {
@@ -1180,8 +1407,22 @@ mod tests {
 
         let cell = CompactCell::blank(1, 2);
         assert_ne!(
-            hash_row(&[cell], &[], 0, 14.0f32.to_bits(), FontWeight::NORMAL.0.to_bits(), "Fira Code"),
-            hash_row(&[cell], &[], 0, 14.0f32.to_bits(), FontWeight::BOLD.0.to_bits(), "Fira Code")
+            hash_row(
+                &[cell],
+                &[],
+                0,
+                14.0f32.to_bits(),
+                FontWeight::NORMAL.0.to_bits(),
+                "Fira Code"
+            ),
+            hash_row(
+                &[cell],
+                &[],
+                0,
+                14.0f32.to_bits(),
+                FontWeight::BOLD.0.to_bits(),
+                "Fira Code"
+            )
         );
     }
 
