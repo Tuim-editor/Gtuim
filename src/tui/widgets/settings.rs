@@ -838,9 +838,9 @@ impl SettingsWidget {
             _ => "vim.g.tuim_zen_mode = false; vim.g.tuim_ide_mode = false; if _G.tuim_disable_ide_mode then _G.tuim_disable_ide_mode() end",
         };
         let numbers_lua = match self.config.numbers.as_str() {
-            "absolute" => "vim.o.number = true; vim.o.relativenumber = false",
-            "none" => "vim.o.number = false; vim.o.relativenumber = false",
-            _ => "vim.o.number = true; vim.o.relativenumber = true",
+            "absolute" => "if _G.tuim_apply_numbers then _G.tuim_apply_numbers('absolute') else vim.o.number = true; vim.o.relativenumber = false end",
+            "none" => "if _G.tuim_apply_numbers then _G.tuim_apply_numbers('none') else vim.o.number = false; vim.o.relativenumber = false end",
+            _ => "if _G.tuim_apply_numbers then _G.tuim_apply_numbers('relative') else vim.o.number = true; vim.o.relativenumber = true end",
         };
         let tabstop = self.config.tabstop.clamp(2, 8);
         let lua_cmd = format!(

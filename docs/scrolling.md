@@ -17,6 +17,36 @@ wheel propagation. Editor and terminal wheel handlers also reject input while a 
 overlay is open. The settings dropdown similarly isolates its scroll from the settings
 list below it.
 
+## Line numbers: persistence and rendering
+
+As of 0.4.2, the saved relative/absolute/hidden preference is applied to existing
+editor splits and restored when an editor window opens a file after a dashboard.
+Special buffers and floating windows keep their numbers hidden. Options are
+updated on entry/classification events only, not on cursor movement or scrolling.
+
+The text cache now separates the first eight columns from bounded 64-column
+segments, and isolates non-ASCII graphemes. Relative-number changes no longer
+invalidate the entire code row. Unicode signs and split dividers no longer
+force ASCII code through per-cell shaping. Segment positions remain aligned to
+Neovim cells, including wide-character continuations and long graphemes.
+
+Regression measurements on a 136-column, 40-row headless fixture:
+
+- Changing the relative gutter prepares 320 cache-miss cells instead of the
+  previous whole-row workload of 5,440 cells.
+- 120 simulated scroll frames with a Unicode divider prepare 16,512 cache-miss
+  cells compared with the whole-row workload of 652,800 cells.
+
+These are deterministic cache-work measurements, **not measured display FPS**.
+GPU rendering, compositor timing and real interactive smoothness still need
+checking with the rebuilt release. Compare hidden, absolute and relative numbers
+on the same file, and repeat with editor splits and Unicode content.
+
+```sh
+cargo test --test line_numbers
+cargo test --lib gui::grid_canvas::tests -- --nocapture
+```
+
 ## PDF continuous scrolling
 
 The PDF viewer stacks pages vertically in a single native scroll surface. Mouse-wheel
