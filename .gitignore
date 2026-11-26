@@ -7,6 +7,15 @@ __pycache__/
 .env
 .env.*
 !.env.example
+# Local credentials/private key material (never needed in the source tree).
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+credentials.json
+id_rsa
+id_ed25519
 # Local study/reference material, not application source.
 /en.subject.pdf
 /memo.md

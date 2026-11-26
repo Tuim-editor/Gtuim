@@ -98,6 +98,13 @@ Linux/macOS native builds, packaging and the three-platform GitHub Actions
 workflow. macOS binaries require native Apple SDK/Metal tooling; they cannot be
 produced by simply renaming the Linux executable.
 
+## Secret checks
+
+See [secret scanning and local push protection](docs/security-checks.md).
+Before pushing from a new clone, install Gitleaks and enable the local hook:
+`git config core.hooksPath .githooks`. Secret scanning is also run in CI, with
+redacted output. No scanner can guarantee detection of all sensitive information.
+
 ## Shortcuts
 
 All Rtuim shortcuts carry over directly (`F1` Commands, `Ctrl+E` Explorer, `Ctrl+T` Bottom Terminal, `Ctrl+P` Find File, `Alt+G` Project Search, `F6`/`Shift+F6` Cycle Focus, `Alt+Arrows` Resize Panes, `F11` Zen Mode, `F12` Report Bug, `Ctrl+S` Save, `Ctrl+Q` Quit), plus `Ctrl+=` / `Ctrl+-` / `Ctrl+0` for GUI font zoom.
