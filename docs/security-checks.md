@@ -1,9 +1,8 @@
 # Keeping secrets out of GitHub
 
-The initial pushed commit was checked for credential/private-key patterns and
-then scanned in full with Gitleaks 8.30.1: no findings. Subsequent history is
-checked before each agent push. This is defense in depth, not a guarantee that
-all possible sensitive information can be detected.
+Run Gitleaks before publishing changes. The local hook and CI workflow check
+Git history with redacted output. These are additional safeguards, not a
+guarantee that all possible sensitive information can be detected.
 
 ## Local push protection
 

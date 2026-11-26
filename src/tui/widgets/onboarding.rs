@@ -4,6 +4,10 @@ use std::path::Path;
 use crate::tui::input::InputEvent;
 use crate::tui::widgets::settings::{Keybindings, SettingsConfig};
 
+/// App-wide, not profile-specific: Rtuim shares settings and the data directory
+/// but must not count as having completed Gtuim's native welcome/setup flow.
+pub const COMPLETION_MARKER: &str = "gtuim-onboarding-complete";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnboardingStep {
     Theme = 0,
@@ -440,26 +444,25 @@ impl OnboardingWidget {
         }
     }
 
-    pub fn should_auto_open(data_dir: &str, config: &SettingsConfig) -> bool {
-        if std::env::var("TUIM_SKIP_ONBOARDING").ok().as_deref() == Some("1") {
+    pub fn should_auto_open(data_dir: &str, _config: &SettingsConfig) -> bool {
+        if ["GTUIM_SKIP_ONBOARDING", "TUIM_SKIP_ONBOARDING"].iter()
+            .any(|key| std::env::var(key).ok().as_deref() == Some("1")) {
             return false;
         }
-        if config.onboarding_completed {
-            return false;
-        }
-        let marker = format!("{}/onboarding-complete", data_dir);
-        !Path::new(&marker).exists()
+        // Neither the legacy onboarding-complete marker nor the shared/profile
+        // config.onboarding_completed flag proves Gtuim setup was completed.
+        // A failed/interrupted marker write must not suppress the next launch.
+        !matches!(fs::read_to_string(Path::new(data_dir).join(COMPLETION_MARKER)),
+            Ok(content) if content == "completed\n")
     }
 
-    pub fn write_completion_marker(data_dir: &str) {
+    pub fn write_completion_marker(data_dir: &str) -> Result<(), String> {
         if data_dir.is_empty() {
-            return;
+            return Err("Gtuim data directory is unavailable".into());
         }
-        let marker = format!("{}/onboarding-complete", data_dir);
-        if let Some(parent) = Path::new(&marker).parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        let _ = fs::write(&marker, "completed\n");
+        fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
+        fs::write(Path::new(data_dir).join(COMPLETION_MARKER), "completed\n")
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -510,6 +513,27 @@ mod tests {
         assert_eq!(w.draft.font_size, 9);
         w.adjust_font_size(50);
         assert_eq!(w.draft.font_size, 26);
+    }
+
+    #[test]
+    fn completion_marker_is_app_specific_and_write_errors_are_reported() {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!("gtuim-onboarding-marker-{}-{}",
+            std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("onboarding-complete"), "legacy marker").unwrap();
+        fs::write(root.join("settings.json"), "existing settings").unwrap();
+        OnboardingWidget::write_completion_marker(root.to_str().unwrap()).unwrap();
+        assert_eq!(fs::read_to_string(root.join(COMPLETION_MARKER)).unwrap(), "completed\n");
+        assert_eq!(fs::read_to_string(root.join("onboarding-complete")).unwrap(), "legacy marker");
+        assert_eq!(fs::read_to_string(root.join("settings.json")).unwrap(), "existing settings");
+        // Existing directory at the marker path must report failure, not claim
+        // setup completion persisted. Empty data roots must never write to cwd.
+        fs::remove_file(root.join(COMPLETION_MARKER)).unwrap();
+        fs::create_dir(root.join(COMPLETION_MARKER)).unwrap();
+        assert!(OnboardingWidget::write_completion_marker(root.to_str().unwrap()).is_err());
+        assert!(OnboardingWidget::write_completion_marker("").is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

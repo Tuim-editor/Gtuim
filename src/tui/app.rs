@@ -448,9 +448,17 @@ impl App {
         self.onboarding.open_shop_after = false;
         self.onboarding.open_settings_after = false;
 
+        let previous_config = self.settings_widget.config.clone();
         self.settings_widget.config = cfg.clone();
         self.settings_widget.save_and_sync(&mut self.editor_rpc);
-        OnboardingWidget::write_completion_marker(&self.data_dir);
+        if self.settings_widget.status_msg.starts_with("Save error:") {
+            self.settings_widget.config = previous_config;
+            self.onboarding.is_open = true;
+            self.set_notice("error", &self.settings_widget.status_msg.clone());
+            self.invalidations.mark_chrome();
+            return;
+        }
+        let completion_result = OnboardingWidget::write_completion_marker(&self.data_dir);
 
         let next_mode = match cfg.mode.as_str() {
             "zen" => Mode::Zen,
@@ -478,11 +486,15 @@ impl App {
                 "Workspace ready — press F1 anytime for commands or Help → Welcome & Setup",
             );
         }
+        if let Err(error) = completion_result {
+            self.set_notice("warning", &format!(
+                "Settings applied, but Gtuim setup completion could not be saved ({error}); setup will reopen next launch."
+            ));
+        }
         self.invalidations.mark_chrome();
     }
 
     pub fn cancel_onboarding(&mut self) {
-        let is_first_run = self.onboarding.is_first_run;
         let theme_previewed = self.onboarding.draft.theme != self.onboarding.initial.theme;
         self.onboarding.is_open = false;
         self.workspace.focus = self.workspace.prior_focus;
@@ -492,15 +504,9 @@ impl App {
             SettingsWidget::preview_theme(&mut self.editor_rpc, &revert_theme);
         }
 
-        if is_first_run {
-            self.settings_widget.config.onboarding_completed = true;
-            self.settings_widget.saved_config.onboarding_completed = true;
-            let _ = self
-                .settings_widget
-                .config
-                .save(&self.settings_widget.settings_path);
-            OnboardingWidget::write_completion_marker(&self.data_dir);
-        }
+        // “Skip for now”, Escape and close only defer setup. Do not persist
+        // completion or change shared/profile settings until the user finishes.
+        // A completed install's marker is left intact on a manual reopen.
         self.invalidations.mark_chrome();
     }
 }
