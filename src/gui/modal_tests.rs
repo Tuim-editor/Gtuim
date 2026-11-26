@@ -1,5 +1,10 @@
 //! Headless tests render the production Gtuim modal tree. The backend is an inert
 //! pipe process: no Neovim bootstrap, network, user runtime, or desktop is touched.
+// The first-run child suite additionally exercises production startup with real
+// Neovim, confined to subprocess-local HOME/XDG directories.
+#[path = "first_run_tests.rs"]
+mod first_run_tests;
+
 use super::{DragKind, GtuimView, GridBuffer, GridMetrics};
 use crate::{nvim::{process::NvimProcess, rpc::RpcClient}, tui::{app::App as TuimApp,
     capabilities::Capabilities, widgets::extension_shop::PluginInfo}};
