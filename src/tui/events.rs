@@ -612,6 +612,9 @@ pub fn execute_command(app: &mut App, cmd_id: &str) {
         "open_pdf_in_split" => {
             app.open_pdf_in_split_requested = true;
         }
+        "toggle_image_preview" => {
+            app.toggle_image_preview_requested = true;
+        }
         "split_down" => {
             app.workspace.focus = FocusRegion::Editor;
             let _ = app
@@ -806,8 +809,16 @@ pub fn process_widget_side_effects(app: &mut App) {
     if app.git_panel.open_detailed_requested {
         app.git_panel.open_detailed_requested = false;
         app.git_detailed_widget.is_open = true;
+        app.git_detailed_widget.active_tab = 1;
+        app.git_detailed_widget.list_state.move_home();
         app.git_detailed_widget
             .apply_snapshot(app.git_panel.snapshot.clone());
+    }
+    if let Some(diff) = app.git_panel.open_diff_requested.take() {
+        app.git_detailed_widget.diff_preview = Some(diff);
+        app.git_detailed_widget.active_tab = 2;
+        app.git_detailed_widget.list_state.move_home();
+        app.git_detailed_widget.is_open = true;
     }
     if app.git_panel.refresh_requested || app.git_detailed_widget.refresh_requested {
         app.git_panel.refresh_requested = false;

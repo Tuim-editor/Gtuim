@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use crate::git_snapshot::GitSnapshot;
+use crate::git_snapshot::{git_command_in, switch_branch_in, GitDiffPreview, GitSnapshot};
 use crate::tui::input::InputEvent;
 use crate::tui::layout::Rect;
 use crate::tui::renderer::Renderer;
@@ -14,6 +14,7 @@ pub struct GitDetailedWidget {
     pub list_state: ListState,
     pub status_msg: String,
     pub refresh_requested: bool,
+    pub diff_preview: Option<GitDiffPreview>,
 }
 
 impl GitDetailedWidget {
@@ -25,6 +26,7 @@ impl GitDetailedWidget {
             list_state: ListState::new(),
             status_msg: String::new(),
             refresh_requested: false,
+            diff_preview: None,
         }
     }
 
@@ -34,7 +36,11 @@ impl GitDetailedWidget {
     }
 
     pub fn current_len(&self) -> usize {
-        if self.active_tab == 0 {
+        if self.active_tab == 2 {
+            self.diff_preview
+                .as_ref()
+                .map_or(0, |d| d.text.lines().count())
+        } else if self.active_tab == 0 {
             self.snapshot.commits.len()
         } else {
             self.snapshot.branches.len()
@@ -66,7 +72,8 @@ impl GitDetailedWidget {
                 self.list_state.move_home();
             }
             "<Tab>" => {
-                self.active_tab = (self.active_tab + 1) % 2;
+                self.active_tab =
+                    (self.active_tab + 1) % if self.diff_preview.is_some() { 3 } else { 2 };
                 self.list_state.move_home();
             }
             "j" | "<Down>" => {
@@ -76,13 +83,26 @@ impl GitDetailedWidget {
                 self.list_state.move_up(1);
             }
             "c" | "<CR>" => {
-                if self.active_tab == 0 {
-                    if let Some(cm) = self.snapshot.commits.get(self.list_state.selected) {
-                        let _ = Command::new("git").args(["checkout", &cm.hash]).output();
-                        self.refresh_requested = true;
-                    }
-                } else if let Some(br) = self.snapshot.branches.get(self.list_state.selected) {
-                    let _ = Command::new("git").args(["checkout", br]).output();
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let cwd = cwd.to_string_lossy();
+                let result = if self.active_tab == 0 {
+                    self.snapshot
+                        .commits
+                        .get(self.list_state.selected)
+                        .map(|cm| git_command_in(&cwd, &["switch", "--detach", "--", &cm.hash]))
+                } else if self.active_tab == 1 {
+                    self.snapshot
+                        .branches
+                        .get(self.list_state.selected)
+                        .map(|br| switch_branch_in(&cwd, br))
+                } else {
+                    None
+                };
+                if let Some(result) = result {
+                    self.status_msg = match result {
+                        Ok(_) => "Switched successfully".into(),
+                        Err(e) => format!("Switch failed: {e}"),
+                    };
                     self.refresh_requested = true;
                 }
             }
@@ -145,7 +165,14 @@ impl GitDetailedWidget {
         }
         let mr = Self::modal_rect(screen);
         let c = chrome(theme);
-        primitives::draw_modal_frame(renderer, mr, "Git History & Branches", theme);
+        let title = if self.active_tab == 2 {
+            self.diff_preview
+                .as_ref()
+                .map_or("Git Diff Preview", |d| d.title.as_str())
+        } else {
+            "Git History & Branches"
+        };
+        primitives::draw_modal_frame(renderer, mr, title, theme);
 
         let t0_bg = if self.active_tab == 0 {
             c.row_selected_bg
@@ -176,6 +203,18 @@ impl GitDetailedWidget {
             false,
         );
 
+        if !self.status_msg.is_empty() {
+            let status =
+                primitives::truncate_to_width(&self.status_msg, mr.w.saturating_sub(4) as usize);
+            renderer.draw_text(
+                mr.x + 2,
+                mr.y + mr.h.saturating_sub(2),
+                &status,
+                c.text_strong,
+                c.panel_bg,
+            );
+        }
+
         let list_y = mr.y + 4;
         let list_h = mr.h.saturating_sub(6) as usize;
         self.list_state.adjust_scroll(list_h);
@@ -190,12 +229,22 @@ impl GitDetailedWidget {
             let bg = if sel { c.row_selected_bg } else { c.panel_bg };
             renderer.fill_rect(Rect::new(mr.x + 1, ry, mr.w - 2, 1), bg);
 
-            let line = if self.active_tab == 0 {
+            let line = if self.active_tab == 2 {
+                self.diff_preview
+                    .as_ref()
+                    .and_then(|d| d.text.lines().nth(idx))
+                    .unwrap_or("")
+                    .to_string()
+            } else if self.active_tab == 0 {
                 let cm = &self.snapshot.commits[idx];
                 format!(" {}  {} ({}, {})", cm.hash, cm.message, cm.author, cm.date)
             } else {
                 let br = &self.snapshot.branches[idx];
-                let mark = if *br == self.snapshot.branch { "*" } else { " " };
+                let mark = if *br == self.snapshot.branch {
+                    "*"
+                } else {
+                    " "
+                };
                 format!(" {} {}", mark, br)
             };
             let trunc = primitives::truncate_to_width(&line, mr.w.saturating_sub(4) as usize);

@@ -6,10 +6,10 @@ A desktop code editor powered by **Neovim** and **GPUI**, for Linux and macOS.
 
 - **Editing:** tabs, split views, line numbers, completion, and Vim or familiar controls.
 - **Files and search:** project explorer, quick file opening, search and replace.
-- **Git:** stage changes, commit, browse history, and manage branches and worktrees.
+- **Git:** initialize repositories, stage changes, preview staged and working-tree diffs, commit, switch local or remote branches, browse history, and manage worktrees.
 - **Terminals:** run commands without leaving the editor.
 - **Build tools:** compile your project and jump to errors.
-- **Previews:** read Markdown and PDFs beside your code.
+- **Previews:** read Markdown (including formatted tables) and PDFs beside your code, and view PNG/JPEG images natively.
 - **Customization:** themes, fonts, shortcuts, plugins, and language tools.
 - **Profiles:** separate settings, activity tracking, and optional coding practice.
 - **AI tools:** launch supported coding assistants installed on your machine.
@@ -40,6 +40,12 @@ cd Gtuim
 cargo build --locked --release
 ./target/release/gtuim
 ```
+
+## Preview and Git controls
+
+- Open a `.png`, `.jpg`, or `.jpeg` file to preview it automatically. **Ctrl+Shift+I** or **View → Toggle Image Preview** switches between the preview and raw buffer; the preview toolbar offers full/split view, fit, zoom, and background controls.
+- **Ctrl+Shift+M** toggles live Markdown preview, including tables and inline formatting.
+- In **Source Control**, use **Initialize Repository** for a project without Git, click the branch header to switch branches, or click a changed file to inspect its staged or working-tree diff. Branch switching preserves local edits and reports conflicts instead of forcing a checkout.
 
 ## Help and feedback
 

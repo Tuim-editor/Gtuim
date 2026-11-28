@@ -1,7 +1,7 @@
 //! Native, inert Markdown preview. Never executes embedded HTML or fetches remote content.
 use super::{icons::gui_palette, GtuimView};
 use gpui::{prelude::*, *};
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
 use rmpv::Value;
 
 // Read the live buffer, not the on-disk file. Coalesce insert-mode changes and
@@ -65,6 +65,13 @@ struct Block {
     quote: bool,
     rule: bool,
     highlights: Vec<(std::ops::Range<usize>, HighlightStyle)>,
+    table: Option<Table>,
+}
+
+#[derive(Debug, Default)]
+struct Table {
+    alignments: Vec<Alignment>,
+    rows: Vec<Vec<Block>>,
 }
 
 fn parse(source: &str) -> Vec<Block> {
@@ -76,9 +83,10 @@ fn parse(source: &str) -> Vec<Block> {
     let mut quote = 0usize;
     let mut lists: Vec<Option<u64>> = Vec::new();
     let mut links = Vec::new();
-    let mut cell_index = 0usize;
+    let mut table: Option<Table> = None;
+    let mut row = Vec::new();
     fn flush(block: &mut Block, blocks: &mut Vec<Block>) {
-        if !block.text.is_empty() || block.rule {
+        if !block.text.is_empty() || block.rule || block.table.is_some() {
             blocks.push(std::mem::take(block));
         }
     }
@@ -134,30 +142,35 @@ fn parse(source: &str) -> Vec<Block> {
                 Tag::Strikethrough => strike += 1,
                 Tag::Link { dest_url, .. } => links.push((dest_url.to_string(), block.text.len())),
                 Tag::Image { .. } => block.text.push_str("[Image: "),
-                Tag::TableHead => {
+                Tag::Table(alignments) => {
                     flush(&mut block, &mut blocks);
-                    bold += 1;
-                    cell_index = 0;
+                    table = Some(Table {
+                        alignments,
+                        rows: Vec::new(),
+                    });
                 }
-                Tag::TableRow => {
-                    flush(&mut block, &mut blocks);
-                    cell_index = 0;
-                }
-                Tag::TableCell => {
-                    if cell_index > 0 {
-                        block.text.push_str("  │  ");
-                    }
-                    cell_index += 1;
-                }
+                Tag::TableHead => bold += 1,
+                Tag::TableRow | Tag::TableCell => {}
                 _ => {}
             },
             Event::End(tag) => match tag {
-                TagEnd::Heading(_) | TagEnd::Paragraph | TagEnd::Item | TagEnd::TableRow => {
+                TagEnd::Heading(_) | TagEnd::Paragraph | TagEnd::Item => {
                     flush(&mut block, &mut blocks)
                 }
-                TagEnd::TableHead => {
-                    flush(&mut block, &mut blocks);
-                    bold = bold.saturating_sub(1);
+                TagEnd::TableCell => row.push(std::mem::take(&mut block)),
+                TagEnd::TableHead | TagEnd::TableRow => {
+                    if let Some(table) = table.as_mut() {
+                        table.rows.push(std::mem::take(&mut row));
+                    }
+                    if tag == TagEnd::TableHead {
+                        bold = bold.saturating_sub(1);
+                    }
+                }
+                TagEnd::Table => {
+                    blocks.push(Block {
+                        table: table.take(),
+                        ..Block::default()
+                    });
                 }
                 TagEnd::CodeBlock => {
                     if block.text.ends_with('\n') {
@@ -193,7 +206,16 @@ fn parse(source: &str) -> Vec<Block> {
                     start..block.text.len(),
                     HighlightStyle {
                         background_color: Some(rgba(0x80808030).into()),
-                        font_weight: Some(FontWeight::MEDIUM),
+                        font_weight: Some(if bold > 0 {
+                            FontWeight::BOLD
+                        } else {
+                            FontWeight::MEDIUM
+                        }),
+                        font_style: (italic > 0).then_some(FontStyle::Italic),
+                        strikethrough: (strike > 0).then_some(StrikethroughStyle {
+                            thickness: px(1.0),
+                            color: None,
+                        }),
                         ..HighlightStyle::default()
                     },
                 ));
@@ -338,6 +360,42 @@ pub fn render(view: &GtuimView, cx: &mut Context<GtuimView>) -> AnyElement {
             if block.rule {
                 return div().my_3().h(px(1.)).bg(rgb(p.border)).into_any_element();
             }
+            if let Some(table) = &block.table {
+                // All rows share equal-width columns: proportional fonts and long
+                // cell contents must not move the separators in adjacent rows.
+                return div()
+                    .mb_3()
+                    .w_full()
+                    .border_1()
+                    .border_color(rgb(p.border))
+                    .children(table.rows.iter().enumerate().map(|(index, row)| {
+                        div()
+                            .flex()
+                            .w_full()
+                            .when(index == 0, |d| d.bg(rgb(p.bg_surface)))
+                            .when(index > 0, |d| d.border_t_1().border_color(rgb(p.border)))
+                            .children(row.iter().enumerate().map(|(column, cell)| {
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .px_3()
+                                    .py_2()
+                                    .when(column > 0, |d| {
+                                        d.border_l_1().border_color(rgb(p.border))
+                                    })
+                                    .text_align(match table.alignments.get(column) {
+                                        Some(Alignment::Center) => TextAlign::Center,
+                                        Some(Alignment::Right) => TextAlign::Right,
+                                        _ => TextAlign::Left,
+                                    })
+                                    .child(
+                                        StyledText::new(cell.text.clone())
+                                            .with_highlights(cell.highlights.clone()),
+                                    )
+                            }))
+                    }))
+                    .into_any_element();
+            }
             div()
                 .mb_3()
                 .w_full()
@@ -389,6 +447,34 @@ pub fn render(view: &GtuimView, cx: &mut Context<GtuimView>) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod rendering {
+        use gpui::{px, size, TestAppContext};
+
+        #[gpui::test]
+        fn markdown_preview_renders_rich_tables_in_narrow_and_wide_windows(
+            cx: &mut TestAppContext,
+        ) {
+            let (_, window) = cx.add_window_view(|_, cx| {
+            let mut view = super::super::super::modal_tests::fixture(cx);
+            view.app.extension_shop.is_open = false;
+            view.markdown_preview.open = true;
+            view.markdown_preview.update(&[
+                "table.md".into(), true.into(),
+                "| **Name** | Value |\n| :--- | ---: |\n| **foo** | *hé🦀* |\n| long cell contents that should wrap inside the column | `code` |".into(),
+                false.into(),
+            ]);
+            view
+        });
+            for width in [720.0, 1400.0] {
+                window.simulate_resize(size(px(width), px(700.0)));
+                window.run_until_parked();
+                let bounds = window.debug_bounds("markdown-preview-pane").unwrap();
+                assert!(bounds.size.width > px(0.0));
+                assert!(bounds.right() <= px(width));
+            }
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn initial_loading_and_document_identity_are_not_confused_with_truncation() {
@@ -442,12 +528,82 @@ mod tests {
         assert_eq!(strike.thickness, px(1.0));
         assert!(blocks.iter().any(|b| b.text == "☑ Done"));
         assert!(blocks.iter().any(|b| b.text == "☐ Todo"));
-        assert!(blocks.iter().any(|b| b.text == "A  │  B"));
-        assert!(blocks.iter().any(|b| b.text == "C  │  D"));
+        let table = blocks.iter().find_map(|b| b.table.as_ref()).unwrap();
+        assert_eq!(
+            table.rows[0]
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B"]
+        );
+        assert_eq!(
+            table.rows[1]
+                .iter()
+                .map(|c| c.text.as_str())
+                .collect::<Vec<_>>(),
+            ["C", "D"]
+        );
         assert!(blocks.iter().any(|b| b.text == "    • inner"));
         assert_eq!(blocks.last().unwrap().text, "https://example.org");
         assert!(parse("plain")[0].highlights.is_empty());
         assert_eq!(parse("```\nx\n```")[0].text, "x");
+    }
+
+    #[::core::prelude::v1::test]
+    fn strong_emphasis_composes_with_inline_code_and_unicode() {
+        let blocks = parse("**foo** plain **hé *italic* `code`**");
+        let block = &blocks[0];
+        assert_eq!(block.text, "foo plain hé italic code");
+        for word in ["foo", "hé ", "italic", "code"] {
+            let start = block.text.find(word).unwrap();
+            let (_, style) = block
+                .highlights
+                .iter()
+                .find(|(range, _)| range.start == start)
+                .unwrap();
+            assert_eq!(style.font_weight, Some(FontWeight::BOLD));
+        }
+        let (_, italic) = block
+            .highlights
+            .iter()
+            .find(|(range, _)| &block.text[range.clone()] == "italic")
+            .unwrap();
+        assert_eq!(italic.font_style, Some(FontStyle::Italic));
+        assert!(block.highlights.iter().all(|(range, _)| {
+            block.text.is_char_boundary(range.start) && block.text.is_char_boundary(range.end)
+        }));
+    }
+
+    #[::core::prelude::v1::test]
+    fn tables_keep_columns_alignment_empty_cells_and_inline_styles() {
+        let blocks = parse("Before\n\n| Left | Center | Right |\n| :--- | :---: | ---: |\n| **bold** | | *hé🦀* |\n| very long content | `code` | tail |\n\nAfter");
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].text, "Before");
+        assert_eq!(blocks[2].text, "After");
+        let table = blocks[1].table.as_ref().unwrap();
+        assert_eq!(
+            table.alignments,
+            [Alignment::Left, Alignment::Center, Alignment::Right]
+        );
+        assert_eq!(table.rows.len(), 3);
+        assert!(table.rows.iter().all(|row| row.len() == 3));
+        assert!(table.rows[1][1].text.is_empty());
+        assert_eq!(
+            table.rows[1][0].highlights[0].1.font_weight,
+            Some(FontWeight::BOLD)
+        );
+        assert_eq!(
+            table.rows[1][2].highlights[0].1.font_style,
+            Some(FontStyle::Italic)
+        );
+        assert_eq!(table.rows[2][1].text, "code");
+        assert!(table.rows[0]
+            .iter()
+            .all(|cell| cell.highlights[0].1.font_weight == Some(FontWeight::BOLD)));
+        assert!(
+            blocks[2].highlights.is_empty(),
+            "table heading styles must not leak"
+        );
     }
 
     #[::core::prelude::v1::test]

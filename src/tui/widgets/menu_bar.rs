@@ -44,6 +44,7 @@ pub const MENUS: &[TopMenu] = &[
             ("Toggle Tab Bar", "toggle_tab_bar"),
             ("Toggle PDF Preview", "toggle_pdf_preview"),
             ("Open PDF in Split…", "open_pdf_in_split"),
+            ("Toggle Image Preview", "toggle_image_preview"),
             ("Split Right", "split_right"),
             ("Split Down", "split_down"),
             ("Close Split", "close_split"),

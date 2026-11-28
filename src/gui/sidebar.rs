@@ -867,6 +867,19 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
     let focused = app.workspace.focus == FocusRegion::Sidebar;
     let gp = &app.git_panel;
 
+    if !gp.snapshot.is_repository {
+        return div().flex().flex_col().gap_3().p_3()
+            .child(div().text_color(rgb(p.text_muted)).child("This project is not a Git repository."))
+            .child(div().id("git-init").debug_selector(|| "git-init".into()).px_3().py_2().rounded(px(6.0))
+                .bg(rgb(p.accent)).text_color(rgb(p.accent_fg)).cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.app.git_panel.initialize_repository();
+                    this.after_widget_change(cx);
+                    cx.notify();
+                })).child("Initialize Repository"))
+            .child(gp.status_feedback.clone()).into_any_element();
+    }
+
     let actions = div()
         .flex()
         .items_center()
@@ -1020,11 +1033,11 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         );
         for (idx, f) in gp.staged.iter().enumerate() {
             let selected = idx == gp.list_state.selected;
-            let path = f.path.clone();
-            let path_unstage = path.clone();
+            let path_unstage = f.path.clone();
             body = body.child(
                 div()
                     .id(("git-staged", idx))
+                    .debug_selector(move || format!("git-staged-{idx}"))
                     .w_full()
                     .px_2()
                     .py(px(4.0))
@@ -1040,7 +1053,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.app.git_panel.list_state.selected = idx;
-                        this.app.git_panel.open_file_requested = Some(path.clone());
+                        this.app.git_panel.preview_selected_diff();
                         this.after_widget_change(cx);
                         cx.notify();
                     }))
@@ -1099,11 +1112,11 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         for (u_idx, f) in gp.unstaged.iter().enumerate() {
             let global_idx = gp.staged.len() + u_idx;
             let selected = global_idx == gp.list_state.selected;
-            let path = f.path.clone();
-            let path_stage = path.clone();
+            let path_stage = f.path.clone();
             body = body.child(
                 div()
                     .id(("git-unstaged", u_idx))
+                    .debug_selector(move || format!("git-unstaged-{u_idx}"))
                     .w_full()
                     .px_2()
                     .py(px(4.0))
@@ -1119,7 +1132,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.app.git_panel.list_state.selected = global_idx;
-                        this.app.git_panel.open_file_requested = Some(path.clone());
+                        this.app.git_panel.preview_selected_diff();
                         this.after_widget_change(cx);
                         cx.notify();
                     }))
@@ -1187,8 +1200,17 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .flex()
         .flex_col()
         .child(sidebar_header("SOURCE CONTROL", p, actions, cx))
+        .child(div().id("git-switch-branch").debug_selector(|| "git-switch-branch".into()).px_3().py_2().cursor_pointer()
+            .text_color(rgb(p.accent))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.app.git_panel.open_detailed_requested = true;
+                this.after_widget_change(cx);
+                cx.notify();
+            }))
+            .child(format!("⑂ {} · Switch branch", if gp.snapshot.branch.is_empty() { "Detached HEAD" } else { &gp.snapshot.branch })))
         .child(commit_box)
         .child(body)
+        .into_any_element()
 }
 
 fn render_search_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoElement {
@@ -1565,3 +1587,7 @@ fn render_ai_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoEl
         .child(list)
         .child(session_footer)
 }
+
+#[cfg(test)]
+#[path = "git_tests.rs"]
+mod git_tests;

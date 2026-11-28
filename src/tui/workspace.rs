@@ -122,6 +122,11 @@ pub const COMMANDS: &[CommandDef] = &[
         key_field: "",
     },
     CommandDef {
+        id: "toggle_image_preview",
+        label: "Toggle Image preview",
+        key_field: "",
+    },
+    CommandDef {
         id: "focus_next",
         label: "Focus next workspace region",
         key_field: "focus_next",
