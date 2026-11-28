@@ -55,6 +55,38 @@ pub struct MarkdownPreview {
     blocks: Vec<Block>,
     bufnr: Option<i64>,
     scroll: ScrollHandle,
+    preview_font: std::cell::OnceCell<SharedString>,
+}
+
+// GPUI 0.2's Linux font backend does not instantiate variable-font weight
+// axes. Some UI families (e.g. Adwaita Sans) therefore resolve regular and
+// bold to the SAME face. Use a family with real weight variants for prose.
+fn select_preview_font(
+    preferred: &str,
+    available: &[String],
+    mut has_bold_face: impl FnMut(&str) -> bool,
+) -> SharedString {
+    std::iter::once(preferred)
+        .chain([
+            "Liberation Sans",
+            "Noto Sans",
+            "DejaVu Sans",
+            "Arial",
+            "Helvetica",
+        ])
+        .find(|family| available.iter().any(|name| name == family) && has_bold_face(family))
+        .unwrap_or(preferred)
+        .to_string()
+        .into()
+}
+
+fn resolve_preview_font(preferred: &str, text_system: &TextSystem) -> SharedString {
+    select_preview_font(preferred, &text_system.all_font_names(), |family| {
+        let regular = font(family.to_string());
+        let mut bold = regular.clone();
+        bold.weight = FontWeight::BOLD;
+        text_system.resolve_font(&regular) != text_system.resolve_font(&bold)
+    })
 }
 
 #[derive(Debug, Default)]
@@ -339,6 +371,13 @@ pub fn render(view: &GtuimView, cx: &mut Context<GtuimView>) -> AnyElement {
         .p_4()
         .text_color(rgb(p.text))
         .text_size(px(view.font_size))
+        .font_family(
+            state
+                .preview_font
+                .get_or_init(|| resolve_preview_font(&view.ui_font, cx.text_system()))
+                .clone(),
+        )
+        .font_weight(FontWeight::NORMAL)
         .line_height(relative(1.55))
         .whitespace_normal()
         .when(state.loading, |d| d.child("Loading Markdown preview…"))
@@ -547,6 +586,27 @@ mod tests {
         assert_eq!(blocks.last().unwrap().text, "https://example.org");
         assert!(parse("plain")[0].highlights.is_empty());
         assert_eq!(parse("```\nx\n```")[0].text, "x");
+    }
+
+    #[::core::prelude::v1::test]
+    fn preview_font_requires_distinct_regular_and_bold_faces() {
+        let available = vec!["Adwaita Sans".into(), "Liberation Sans".into()];
+        let resolved = select_preview_font("Adwaita Sans", &available, |family| {
+            family == "Liberation Sans"
+        });
+        assert_eq!(resolved.as_ref(), "Liberation Sans");
+        let supported = select_preview_font("Adwaita Sans", &available, |_| true);
+        assert_eq!(
+            supported.as_ref(),
+            "Adwaita Sans",
+            "keep the UI font when bold works"
+        );
+        let unavailable = select_preview_font("Custom", &[], |_| true);
+        assert_eq!(
+            unavailable.as_ref(),
+            "Custom",
+            "preserve the normal fallback when no family qualifies"
+        );
     }
 
     #[::core::prelude::v1::test]
