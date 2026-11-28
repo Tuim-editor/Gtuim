@@ -2430,7 +2430,21 @@ fn render_git_detailed(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl In
         .flex_col()
         .gap_1();
 
-    if gd.active_tab == 0 {
+    if gd.active_tab == 2 {
+        if let Some(diff) = &gd.diff_preview {
+            list = list.child(div().text_size(px(12.0)).text_color(rgb(p.text_muted))
+                .child(diff.title.clone()));
+            for (idx, line) in diff.text.lines().enumerate() {
+                let color = if line.starts_with('+') { p.success }
+                    else if line.starts_with('-') { p.error }
+                    else { p.text_strong };
+                list = list.child(div().id(("git-diff-line", idx))
+                    .debug_selector(move || format!("git-diff-line-{idx}"))
+                    .font_family("monospace").text_size(px(12.0))
+                    .whitespace_normal().text_color(rgb(color)).child(line.to_string()));
+            }
+        }
+    } else if gd.active_tab == 0 {
         for (idx, cm) in gd.snapshot.commits.iter().enumerate() {
             let sel = idx == gd.list_state.selected;
             list = list.child(
@@ -2574,7 +2588,7 @@ fn render_git_detailed(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl In
                                     .text_size(px(14.0))
                                     .font_weight(FontWeight::BOLD)
                                     .text_color(rgb(p.text_strong))
-                                    .child("Git History & Branches"),
+                                    .child(if gd.active_tab == 2 { "Git Diff Preview" } else { "Git History & Branches" }),
                             ),
                     )
                     .child(
@@ -2612,6 +2626,8 @@ fn render_git_detailed(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl In
                     ),
             )
             .child(list)
+            .when(!gd.status_msg.is_empty(), |d| d.child(div().px_4().py_2()
+                .text_size(px(12.0)).text_color(rgb(p.text_muted)).child(gd.status_msg.clone())))
             .child(
                 div()
                     .debug_selector(|| "git-det-footer".into())
@@ -2629,7 +2645,7 @@ fn render_git_detailed(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl In
                     .gap_2()
                     .child(modal_button(
                         "gd-checkout",
-                        "Checkout (Enter)",
+                        if gd.active_tab == 2 { "Diff (read-only)" } else if gd.active_tab == 1 { "Switch Branch (Enter)" } else { "Detach at Commit (Enter)" },
                         true,
                         false,
                         p,

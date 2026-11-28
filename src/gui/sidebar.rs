@@ -307,6 +307,7 @@ fn sidebar_header(
                 .child(
                     div()
                         .id("sb-back-overview")
+                        .tooltip(move |_, cx| sidebar_tooltip("Toggle Sidebar Overview", p, cx))
                         .size(px(20.0))
                         .rounded(px(4.0))
                         .flex()
@@ -332,9 +333,30 @@ fn sidebar_header(
         .child(actions)
 }
 
+struct SidebarTooltip {
+    text: SharedString,
+    palette: GuiPalette,
+}
+
+impl Render for SidebarTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let p = self.palette;
+        div().debug_selector(|| "sidebar-tooltip".into())
+            .px_2().py_1().rounded(px(4.0))
+            .bg(rgb(p.bg_surface)).border_1().border_color(rgb(p.border))
+            .text_size(px(12.0)).text_color(rgb(p.text_strong))
+            .child(self.text.clone())
+    }
+}
+
+fn sidebar_tooltip(text: impl Into<SharedString>, palette: GuiPalette, cx: &mut App) -> AnyView {
+    cx.new(|_| SidebarTooltip { text: text.into(), palette }).into()
+}
+
 fn sb_icon_btn(
     id: &'static str,
     ic: &'static str,
+    label: &'static str,
     p: GuiPalette,
     handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> impl IntoElement {
@@ -349,6 +371,7 @@ fn sb_icon_btn(
         .hover(|s| s.bg(rgb(p.bg_hover)))
         .cursor_pointer()
         .on_click(handler)
+        .tooltip(move |_, cx| sidebar_tooltip(label, p, cx))
         .child(icon(ic, 13.5, p.text_muted))
 }
 
@@ -449,6 +472,7 @@ fn render_explorer(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoEl
         .child(sb_icon_btn(
             "exp-new-file",
             "file-plus",
+            "New File",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.workspace.focus = FocusRegion::Sidebar;
@@ -459,6 +483,7 @@ fn render_explorer(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoEl
         .child(sb_icon_btn(
             "exp-new-dir",
             "folder-plus",
+            "New Folder",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.workspace.focus = FocusRegion::Sidebar;
@@ -469,6 +494,7 @@ fn render_explorer(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoEl
         .child(sb_icon_btn(
             "exp-refresh",
             "refresh",
+            "Refresh Explorer",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.explorer.refresh();
@@ -867,6 +893,19 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
     let focused = app.workspace.focus == FocusRegion::Sidebar;
     let gp = &app.git_panel;
 
+    if !gp.snapshot.is_repository {
+        return div().flex().flex_col().gap_3().p_3()
+            .child(div().text_color(rgb(p.text_muted)).child("This project is not a Git repository."))
+            .child(div().id("git-init").debug_selector(|| "git-init".into()).px_3().py_2().rounded(px(6.0))
+                .bg(rgb(p.accent)).text_color(rgb(p.accent_fg)).cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.app.git_panel.initialize_repository();
+                    this.after_widget_change(cx);
+                    cx.notify();
+                })).child("Initialize Repository"))
+            .child(gp.status_feedback.clone()).into_any_element();
+    }
+
     let actions = div()
         .flex()
         .items_center()
@@ -874,6 +913,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .child(sb_icon_btn(
             "git-btn-stage-all",
             "plus",
+            "Stage All Changes",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.git_panel.stage_all();
@@ -884,6 +924,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .child(sb_icon_btn(
             "git-btn-unstage-all",
             "minus",
+            "Unstage All Changes",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.git_panel.unstage_all();
@@ -894,6 +935,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .child(sb_icon_btn(
             "git-btn-pull",
             "download",
+            "Pull",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.git_panel.handle_key(&InputEvent::Key("p".into()));
@@ -904,6 +946,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .child(sb_icon_btn(
             "git-btn-push",
             "upload",
+            "Push",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.git_panel.handle_key(&InputEvent::Key("P".into()));
@@ -914,6 +957,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .child(sb_icon_btn(
             "git-more",
             "history",
+            "History and Branches",
             p,
             cx.listener(|this, _, _, cx| {
                 this.app.git_panel.open_detailed_requested = true;
@@ -966,6 +1010,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .child(
             div()
                 .id("git-btn-commit")
+                .tooltip(move |_, cx| sidebar_tooltip("Commit Staged Changes", p, cx))
                 .w_full()
                 .py(px(6.0))
                 .rounded(px(6.0))
@@ -1020,11 +1065,11 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         );
         for (idx, f) in gp.staged.iter().enumerate() {
             let selected = idx == gp.list_state.selected;
-            let path = f.path.clone();
-            let path_unstage = path.clone();
+            let path_unstage = f.path.clone();
             body = body.child(
                 div()
                     .id(("git-staged", idx))
+                    .debug_selector(move || format!("git-staged-{idx}"))
                     .w_full()
                     .px_2()
                     .py(px(4.0))
@@ -1040,7 +1085,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.app.git_panel.list_state.selected = idx;
-                        this.app.git_panel.open_file_requested = Some(path.clone());
+                        this.app.git_panel.preview_selected_diff();
                         this.after_widget_change(cx);
                         cx.notify();
                     }))
@@ -1058,6 +1103,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
                     .child(
                         div()
                             .id(("git-unstage", idx))
+                            .tooltip(move |_, cx| sidebar_tooltip("Unstage Changes", p, cx))
                             .size(px(20.0))
                             .rounded(px(4.0))
                             .flex()
@@ -1099,11 +1145,11 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         for (u_idx, f) in gp.unstaged.iter().enumerate() {
             let global_idx = gp.staged.len() + u_idx;
             let selected = global_idx == gp.list_state.selected;
-            let path = f.path.clone();
-            let path_stage = path.clone();
+            let path_stage = f.path.clone();
             body = body.child(
                 div()
                     .id(("git-unstaged", u_idx))
+                    .debug_selector(move || format!("git-unstaged-{u_idx}"))
                     .w_full()
                     .px_2()
                     .py(px(4.0))
@@ -1119,7 +1165,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.app.git_panel.list_state.selected = global_idx;
-                        this.app.git_panel.open_file_requested = Some(path.clone());
+                        this.app.git_panel.preview_selected_diff();
                         this.after_widget_change(cx);
                         cx.notify();
                     }))
@@ -1137,6 +1183,7 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
                     .child(
                         div()
                             .id(("git-stage", u_idx))
+                            .tooltip(move |_, cx| sidebar_tooltip("Stage Changes", p, cx))
                             .size(px(20.0))
                             .rounded(px(4.0))
                             .flex()
@@ -1187,8 +1234,26 @@ fn render_git_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoE
         .flex()
         .flex_col()
         .child(sidebar_header("SOURCE CONTROL", p, actions, cx))
+        .child(div().id("git-switch-branch").debug_selector(|| "git-switch-branch".into())
+            .h(px(30.0)).min_w_0().px_3().flex().items_center().gap_2()
+            .cursor_pointer().hover(|s| s.bg(rgb(p.bg_hover)))
+            .text_size(px(12.0)).text_color(rgb(p.accent))
+            .tooltip({
+                let branch = gp.snapshot.branch.clone();
+                move |_, cx| sidebar_tooltip(format!("Switch branch · {}", if branch.is_empty() { "Detached HEAD" } else { &branch }), p, cx)
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.app.git_panel.open_detailed_requested = true;
+                this.after_widget_change(cx);
+                cx.notify();
+            }))
+            .child(icon("git-branch", 13.0, p.accent))
+            .child(div().flex_1().min_w_0().truncate()
+                .child(if gp.snapshot.branch.is_empty() { "Detached HEAD" } else { &gp.snapshot.branch }.to_string()))
+            .child(icon("chevron-down", 12.0, p.text_muted)))
         .child(commit_box)
         .child(body)
+        .into_any_element()
 }
 
 fn render_search_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoElement {
@@ -1565,3 +1630,7 @@ fn render_ai_panel(view: &GtuimView, cx: &mut Context<GtuimView>) -> impl IntoEl
         .child(list)
         .child(session_footer)
 }
+
+#[cfg(test)]
+#[path = "git_tests.rs"]
+mod git_tests;

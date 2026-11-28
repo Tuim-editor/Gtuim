@@ -66,6 +66,7 @@ pub(super) fn fixture(cx: &mut gpui::Context<GtuimView>) -> GtuimView {
         compilation_scroll: gpui::ScrollHandle::new(),
         markdown_preview: super::markdown_preview::MarkdownPreview::default(),
         pdf_preview: super::pdf_preview::PdfPreview::default(),
+        image_preview: super::image_preview::ImagePreview::default(),
         last_compile_output_version: 0,
         tab_scroll_start: 0,
         last_active_tab: 0,

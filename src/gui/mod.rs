@@ -9,6 +9,7 @@ mod modal_layout;
 mod markdown_preview;
 pub mod pdf_preview;
 mod pdf_split;
+pub mod image_preview;
 #[cfg(test)]
 mod modal_tests;
 mod onboarding;
@@ -563,6 +564,7 @@ pub struct GtuimView {
     pub compilation_scroll: ScrollHandle,
     pub markdown_preview: markdown_preview::MarkdownPreview,
     pub pdf_preview: pdf_preview::PdfPreview,
+    pub image_preview: image_preview::ImagePreview,
     last_compile_output_version: u64,
     pub tab_scroll_start: usize,
     last_active_tab: usize,
@@ -682,6 +684,7 @@ impl GtuimView {
             compilation_scroll: ScrollHandle::new(),
             markdown_preview: markdown_preview::MarkdownPreview::default(),
             pdf_preview: pdf_preview::PdfPreview::default(),
+            image_preview: image_preview::ImagePreview::default(),
             last_compile_output_version: 0,
             tab_scroll_start: 0,
             last_active_tab: 0,
@@ -694,6 +697,7 @@ impl GtuimView {
             _poll_task: poll_task,
         };
         view.sync_pdf_preview(cx);
+        view.sync_image_preview(cx);
         Ok(view)
     }
 
@@ -981,10 +985,16 @@ impl GtuimView {
             self.open_pdf_in_split(cx);
             dirty = true;
         }
+        if self.app.toggle_image_preview_requested {
+            self.app.toggle_image_preview_requested = false;
+            self.toggle_image_preview(cx);
+            dirty = true;
+        }
         if self.consume_find_replace_request(cx) {
             dirty = true;
         }
         self.sync_pdf_preview(cx);
+        self.sync_image_preview(cx);
 
         self.sync_terminal_clipboard(cx);
 
@@ -1100,6 +1110,9 @@ impl GtuimView {
         } else if cmd == "toggle_pdf_preview" {
             self.toggle_pdf_preview(cx);
             return;
+        } else if cmd == "toggle_image_preview" {
+            self.toggle_image_preview(cx);
+            return;
         } else {
             events::execute_command(&mut self.app, cmd);
         }
@@ -1110,6 +1123,10 @@ impl GtuimView {
         if self.app.open_pdf_in_split_requested {
             self.app.open_pdf_in_split_requested = false;
             self.open_pdf_in_split(cx);
+        }
+        if self.app.toggle_image_preview_requested {
+            self.app.toggle_image_preview_requested = false;
+            self.toggle_image_preview(cx);
         }
         self.consume_find_replace_request(cx);
         self.sync_grid_dimensions();
@@ -1147,6 +1164,10 @@ impl GtuimView {
         if self.app.open_pdf_in_split_requested {
             self.app.open_pdf_in_split_requested = false;
             self.open_pdf_in_split(cx);
+        }
+        if self.app.toggle_image_preview_requested {
+            self.app.toggle_image_preview_requested = false;
+            self.toggle_image_preview(cx);
         }
         self.consume_find_replace_request(cx);
 
@@ -1459,6 +1480,12 @@ impl GtuimView {
             self.toggle_pdf_preview(cx);
             return;
         }
+        if ks.modifiers.control && ks.modifiers.shift && !ks.modifiers.alt
+            && ks.key.eq_ignore_ascii_case("i") && !self.has_overlay()
+        {
+            self.toggle_image_preview(cx);
+            return;
+        }
         if ks.key == "escape"
             && (cx.has_active_drag() || self.explorer_drag.is_some() || self.split_drag.is_some())
         {
@@ -1468,11 +1495,15 @@ impl GtuimView {
             cx.notify();
             return;
         }
-        if !self.has_overlay()
-            && self.app.workspace.focus == FocusRegion::Editor
-            && self.handle_pdf_key(ks, cx)
-        {
-            return;
+        if !self.has_overlay() && self.app.workspace.focus == FocusRegion::Editor {
+            let handled = if self.image_preview.is_full_mode() {
+                self.handle_image_key(ks, cx)
+            } else {
+                self.handle_pdf_key(ks, cx)
+            };
+            if handled {
+                return;
+            }
         }
         if ks.modifiers.control && !ks.modifiers.alt {
             match ks.key.as_str() {
@@ -2068,7 +2099,12 @@ impl Render for GtuimView {
                 .is_some_and(is_markdown_tab);
         let show_pdf_toggle =
             !is_zen && !self.pdf_preview.open && pdf_preview::active_pdf_path(&self.app).is_some();
-        let extra_bar_count = usize::from(show_md_toggle) + usize::from(show_pdf_toggle);
+        let show_image_toggle = !is_zen
+            && !self.image_preview.open
+            && image_preview::active_image_path(&self.app).is_some();
+        let extra_bar_count = usize::from(show_md_toggle)
+            + usize::from(show_pdf_toggle)
+            + usize::from(show_image_toggle);
 
         let vp = window.viewport_size();
         let layout = compute_effective_workspace_layout(
@@ -2114,6 +2150,8 @@ impl Render for GtuimView {
 
         let overlays = modals::render_overlays(self, layout, cx);
 
+        let full_image = self.image_preview.is_full_mode();
+        let full_pdf = !full_image && self.pdf_preview.is_full_mode();
         let editor_and_vterm = div()
             .flex_1()
             .min_h_0()
@@ -2121,15 +2159,21 @@ impl Render for GtuimView {
             .w_full()
             .overflow_hidden()
             .flex()
-            .when(self.pdf_preview.is_full_mode(), |d| {
+            .when(full_image, |d| {
+                d.child(image_preview::render(self, window, cx))
+            })
+            .when(full_pdf, |d| {
                 d.child(pdf_preview::render(self, window, cx))
             })
-            .when(!self.pdf_preview.is_full_mode(), |d| {
+            .when(!full_image && !full_pdf, |d| {
                 d.child(self.render_editor_pane(cx))
             })
             .when(self.markdown_preview.open, |d| d.child(markdown_preview::render(self, cx)))
             .when(self.pdf_preview.is_split_mode(), |d| {
                 d.child(pdf_preview::render(self, window, cx))
+            })
+            .when(self.image_preview.is_split_mode(), |d| {
+                d.child(image_preview::render(self, window, cx))
             })
             .when(layout.show_vterm, |d| {
                 d.child(
@@ -2166,6 +2210,9 @@ impl Render for GtuimView {
             .when(show_md_toggle, |d| d.child(markdown_preview::render_toggle(self, cx)))
             .when(show_pdf_toggle, |d| {
                 d.child(pdf_preview::render_toggle(self, cx))
+            })
+            .when(show_image_toggle, |d| {
+                d.child(image_preview::render_toggle(self, cx))
             })
             .child(editor_and_vterm)
             .when(layout.show_drawer, |d| {

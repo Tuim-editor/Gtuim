@@ -1,6 +1,8 @@
 use std::process::Command;
 
-use crate::git_snapshot::{collect_snapshot, GitFileEntry, GitSnapshot};
+use crate::git_snapshot::{
+    collect_snapshot, diff_file_in, GitDiffPreview, GitFileEntry, GitSnapshot,
+};
 use crate::tui::input::InputEvent;
 use crate::tui::layout::Rect;
 use crate::tui::renderer::Renderer;
@@ -17,6 +19,7 @@ pub struct GitPanel {
     pub status_feedback: String,
     pub open_file_requested: Option<String>,
     pub open_detailed_requested: bool,
+    pub open_diff_requested: Option<GitDiffPreview>,
     pub refresh_requested: bool,
 }
 
@@ -32,6 +35,7 @@ impl GitPanel {
             status_feedback: String::new(),
             open_file_requested: None,
             open_detailed_requested: false,
+            open_diff_requested: None,
             refresh_requested: false,
         }
     }
@@ -110,6 +114,32 @@ impl GitPanel {
                 }
             }
             Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub fn initialize_repository(&mut self) {
+        match self.run_git(["init"]) {
+            Ok(_) => self.status_feedback = "Initialized Git repository".into(),
+            Err(e) => self.status_feedback = format!("Initialize failed: {e}"),
+        }
+        self.refresh_sync();
+        self.refresh_requested = true;
+    }
+
+    pub fn preview_selected_diff(&mut self) {
+        let Some((entry, staged)) = self.selected_entry() else {
+            return;
+        };
+        let cwd = match std::env::current_dir() {
+            Ok(cwd) => cwd,
+            Err(e) => {
+                self.status_feedback = e.to_string();
+                return;
+            }
+        };
+        match diff_file_in(&cwd.to_string_lossy(), entry, staged) {
+            Ok(diff) => self.open_diff_requested = Some(diff),
+            Err(e) => self.status_feedback = format!("Diff failed: {e}"),
         }
     }
 
@@ -302,7 +332,17 @@ impl GitPanel {
                 self.is_typing_commit = true;
                 true
             }
-            "m" => {
+            "I" => {
+                if !self.snapshot.is_repository {
+                    self.initialize_repository();
+                }
+                true
+            }
+            "v" => {
+                self.preview_selected_diff();
+                true
+            }
+            "b" | "m" => {
                 self.open_detailed_requested = true;
                 true
             }
@@ -339,16 +379,13 @@ impl GitPanel {
         }
     }
 
-    pub fn handle_mouse(
-        &mut self,
-        r: Rect,
-        mx: u16,
-        my: u16,
-        button: u8,
-        pressed: bool,
-    ) -> bool {
+    pub fn handle_mouse(&mut self, r: Rect, mx: u16, my: u16, button: u8, pressed: bool) -> bool {
         if !r.contains(mx, my) || !pressed {
             return false;
+        }
+        if !self.snapshot.is_repository && button == 0 && my == r.y + 2 {
+            self.initialize_repository();
+            return true;
         }
         if button == 64 {
             self.list_state.move_up(1);
@@ -452,6 +489,12 @@ impl GitPanel {
         }
 
         if r.h < 4 {
+            return;
+        }
+
+        if !self.snapshot.is_repository {
+            renderer.draw_text(r.x + 1, r.y + 1, "No Git repository", c.text, c.panel_bg);
+            renderer.draw_text(r.x + 1, r.y + 2, "[ Initialize (I) ]", c.accent, c.panel_bg);
             return;
         }
 
