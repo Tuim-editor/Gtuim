@@ -53,6 +53,54 @@ fn git_branch_switch_action_opens_branches_modal(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn git_long_branch_stays_compact_and_toolbar_buttons_have_tooltips(cx: &mut TestAppContext) {
+    let (_, window) = cx.add_window_view(|_, cx| {
+        let mut view = fixture(cx);
+        view.app.extension_shop.is_open = false;
+        view.app.workspace.sidebar_visible = true;
+        view.app.activity_bar.active_tab = 1;
+        view.sidebar_px = 256.0;
+        view.app.git_panel.snapshot.is_repository = true;
+        view.app.git_panel.snapshot.branch =
+            "dev/a-very-long-branch-name-that-should-not-wrap".into();
+        view
+    });
+    window.simulate_resize(size(px(1000.0), px(700.0)));
+    window.run_until_parked();
+    let branch = window.debug_bounds("git-switch-branch").unwrap();
+    assert_eq!(
+        branch.size.height,
+        px(30.0),
+        "branch header must remain one compact row"
+    );
+    for id in [
+        "git-btn-stage-all",
+        "git-btn-unstage-all",
+        "git-btn-pull",
+        "git-btn-push",
+        "git-more",
+    ] {
+        let bounds = window.debug_bounds(id).unwrap();
+        window.simulate_mouse_move(bounds.center(), None, gpui::Modifiers::default());
+        window.run_until_parked();
+        window
+            .executor()
+            .advance_clock(std::time::Duration::from_millis(600));
+        window.run_until_parked();
+        assert!(
+            window.debug_bounds("sidebar-tooltip").is_some(),
+            "missing tooltip for {id}"
+        );
+        window.simulate_mouse_move(
+            gpui::point(px(900.0), px(600.0)),
+            None,
+            gpui::Modifiers::default(),
+        );
+        window.run_until_parked();
+    }
+}
+
+#[gpui::test]
 fn git_diff_modal_renders_unified_diff(cx: &mut TestAppContext) {
     let (_, window) = cx.add_window_view(|_, cx| {
         let mut view = fixture(cx);
